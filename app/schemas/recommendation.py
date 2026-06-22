@@ -94,3 +94,23 @@ class PVRecommendationResponse(BaseModel):
     coherence_checks: list[CoherenceCheck]
     rag_context_used: bool
     response: str
+
+
+class SaveRecommendationRequest(BaseModel):
+    input_data: dict[str, Any]
+    result_data: dict[str, Any]
+    city: str | None = None
+    daily_consumption_kwh: float | None = None
+    available_area_m2: float | None = None
+    budget: float | None = None
+    installation_type: str | None = None
+    orientation: str | None = None
+    tilt_angle: float | None = None
+    roof_type: str | None = None
+    panels_result: dict[str, Any] | None = None
+    battery_result: dict[str, Any] | None = None
+    inverter_result: dict[str, Any] | None = None
+    cost_result: dict[str, Any] | None = None
+    roi_result: dict[str, Any] | None = None
+    recommendations: Any | None = None
+    assumptions: dict[str, Any] | None = None
