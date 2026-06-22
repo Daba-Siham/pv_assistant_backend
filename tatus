@@ -1,0 +1,528 @@
+warning: in the working copy of 'app/services/llm/llm_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/services/llm/prompt_builder.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/services/llm/response_formatter.py', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/app/services/llm/llm_service.py b/app/services/llm/llm_service.py[m
+[1mindex 340d71e..3650d33 100644[m
+[1m--- a/app/services/llm/llm_service.py[m
+[1m+++ b/app/services/llm/llm_service.py[m
+[36m@@ -1,6 +1,6 @@[m
+ import uuid[m
+[31m-import requests[m
+ [m
+[32m+[m[32mimport requests[m
+ from sqlalchemy.orm import Session[m
+ [m
+ from app.config import settings[m
+[36m@@ -9,6 +9,12 @@[m [mfrom app.schemas.chat import ChatRequest[m
+ from app.services.llm.prompt_builder import PromptBuilder[m
+ from app.services.llm.response_formatter import ResponseFormatter[m
+ from app.services.rag.retriever import RAGRetriever[m
+[32m+[m[32mfrom app.services.shared.logger import get_logger[m
+[32m+[m
+[32m+[m
+[32m+[m[32mlogger = get_logger(__name__)[m
+[32m+[m[32mIN_MEMORY_HISTORY: dict[str, list[dict[str, str]]] = {}[m
+[32m+[m
+ [m
+ class LLMService:[m
+     def __init__(self, db: Session | None = None):[m
+[36m@@ -22,15 +28,24 @@[m [mclass LLMService:[m
+ [m
+         try:[m
+             chat_history = self._get_recent_history(session_id)[m
+[31m-            rag_context = self.rag_retriever.retrieve_context_only(request.message)[m
+[32m+[m[32m            skip_rag = self._should_skip_rag(request.message)[m
+[32m+[m[32m            logger.info("skip_rag=%s for message=%s", skip_rag, request.message)[m
+[32m+[m
+[32m+[m[32m            if skip_rag:[m
+[32m+[m[32m                rag_context = ""[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                rag_query = self._build_rag_query(request.message, chat_history)[m
+[32m+[m[32m                logger.info("rag_query=%s", rag_query)[m
+[32m+[m[32m                rag_context = self._retrieve_rag_context(rag_query)[m
+ [m
+             prompt = self.prompt_builder.build_chat_prompt([m
+                 request=request,[m
+                 rag_context=rag_context,[m
+                 calculation_result=None,[m
+                 agent_result=None,[m
+[31m-                chat_history=chat_history[m
+[32m+[m[32m                chat_history=chat_history,[m
+             )[m
+[32m+[m[32m            logger.info("prompt length=%s", len(prompt))[m
+ [m
+             raw_response = self._call_llm(prompt)[m
+             response = self.response_formatter.clean_llm_response(raw_response)[m
+[36m@@ -40,19 +55,24 @@[m [mclass LLMService:[m
+                 session_id=session_id,[m
+                 user_message=request.message,[m
+                 assistant_response=response,[m
+[31m-                context=request.context[m
+[32m+[m[32m                context=request.context,[m
+             )[m
+[31m-            [m
+ [m
+             return self.response_formatter.format_chat_response([m
+                 response=response,[m
+[31m-                session_id=session_id[m
+[32m+[m[32m                session_id=session_id,[m
+             )[m
+ [m
+[31m-        except Exception:[m
+[32m+[m[32m        except Exception as exc:[m
+[32m+[m[32m            logger.exception("LLM chat generation failed: %s", exc)[m
+[32m+[m[32m            if self._is_rate_limit_error(exc):[m
+[32m+[m[32m                return self.response_formatter.format_error_response([m
+[32m+[m[32m                    message="La limite du fournisseur IA est atteinte. Veuillez réessayer dans quelques instants.",[m
+[32m+[m[32m                    session_id=session_id,[m
+[32m+[m[32m                )[m
+             return self.response_formatter.format_error_response([m
+[31m-                message="Désolé, une erreur est survenue pendant la génération de la réponse.",[m
+[31m-                session_id=session_id[m
+[32m+[m[32m                message="Erreur technique pendant la generation de la reponse IA. Consultez les logs backend.",[m
+[32m+[m[32m                session_id=session_id,[m
+             )[m
+ [m
+     def explain_calculation_result(self, result: dict) -> str:[m
+[36m@@ -74,10 +94,12 @@[m [mclass LLMService:[m
+         return histories[m
+ [m
+     def clear_chat_history(self, token: str | None = None) -> dict:[m
+[32m+[m[32m        IN_MEMORY_HISTORY.clear()[m
+[32m+[m
+         if self.db is None:[m
+             return {[m
+                 "success": False,[m
+[31m-                "message": "Base de données non disponible"[m
+[32m+[m[32m                "message": "Base de donnees non disponible",[m
+             }[m
+ [m
+         self.db.query(ChatHistory).delete()[m
+[36m@@ -85,10 +107,10 @@[m [mclass LLMService:[m
+ [m
+         return {[m
+             "success": True,[m
+[31m-            "message": "Historique supprimé avec succès"[m
+[32m+[m[32m            "message": "Historique supprime avec succes",[m
+         }[m
+ [m
+[31m-    def _call_llm(self, prompt: str) -> str:[m
+[32m+[m[32m    def _call_llm(self, prompt: str, **_: object) -> str:[m
+         provider = settings.LLM_PROVIDER.lower()[m
+ [m
+         if provider == "ollama":[m
+[36m@@ -100,7 +122,7 @@[m [mclass LLMService:[m
+         if provider == "groq":[m
+             return self._call_groq(prompt)[m
+ [m
+[31m-        return self._fallback_response(prompt)[m
+[32m+[m[32m        raise RuntimeError(f"Unsupported LLM provider: {settings.LLM_PROVIDER}")[m
+ [m
+     def _call_ollama(self, prompt: str) -> str:[m
+         url = f"{settings.OLLAMA_BASE_URL}/api/generate"[m
+[36m@@ -111,8 +133,8 @@[m [mclass LLMService:[m
+             "stream": False,[m
+             "options": {[m
+                 "temperature": settings.LLM_TEMPERATURE,[m
+[31m-                "num_predict": settings.LLM_MAX_TOKENS[m
+[31m-            }[m
+[32m+[m[32m                "num_predict": settings.LLM_MAX_TOKENS,[m
+[32m+[m[32m            },[m
+         }[m
+ [m
+         response = requests.post(url, json=payload, timeout=60)[m
+[36m@@ -123,13 +145,13 @@[m [mclass LLMService:[m
+ [m
+     def _call_openai(self, prompt: str) -> str:[m
+         if not settings.OPENAI_API_KEY:[m
+[31m-            return self._fallback_response(prompt)[m
+[32m+[m[32m            raise RuntimeError("OPENAI_API_KEY is not configured")[m
+ [m
+         url = "https://api.openai.com/v1/chat/completions"[m
+ [m
+         headers = {[m
+             "Authorization": f"Bearer {settings.OPENAI_API_KEY}",[m
+[31m-            "Content-Type": "application/json"[m
+[32m+[m[32m            "Content-Type": "application/json",[m
+         }[m
+ [m
+         payload = {[m
+[36m@@ -137,15 +159,15 @@[m [mclass LLMService:[m
+             "messages": [[m
+                 {[m
+                     "role": "system",[m
+[31m-                    "content": self.prompt_builder.build_system_prompt()[m
+[32m+[m[32m                    "content": self.prompt_builder.build_system_prompt(),[m
+                 },[m
+                 {[m
+                     "role": "user",[m
+[31m-                    "content": prompt[m
+[31m-                }[m
+[32m+[m[32m                    "content": prompt,[m
+[32m+[m[32m                },[m
+             ],[m
+             "temperature": settings.LLM_TEMPERATURE,[m
+[31m-            "max_tokens": settings.LLM_MAX_TOKENS[m
+[32m+[m[32m            "max_tokens": settings.LLM_MAX_TOKENS,[m
+         }[m
+ [m
+         response = requests.post(url, headers=headers, json=payload, timeout=60)[m
+[36m@@ -156,13 +178,13 @@[m [mclass LLMService:[m
+ [m
+     def _call_groq(self, prompt: str) -> str:[m
+         if not settings.GROQ_API_KEY:[m
+[31m-            return self._fallback_response(prompt)[m
+[32m+[m[32m            raise RuntimeError("GROQ_API_KEY is not configured")[m
+ [m
+         url = "https://api.groq.com/openai/v1/chat/completions"[m
+ [m
+         headers = {[m
+             "Authorization": f"Bearer {settings.GROQ_API_KEY}",[m
+[31m-            "Content-Type": "application/json"[m
+[32m+[m[32m            "Content-Type": "application/json",[m
+         }[m
+ [m
+         payload = {[m
+[36m@@ -170,15 +192,15 @@[m [mclass LLMService:[m
+             "messages": [[m
+                 {[m
+                     "role": "system",[m
+[31m-                    "content": self.prompt_builder.build_system_prompt()[m
+[32m+[m[32m                    "content": self.prompt_builder.build_system_prompt(),[m
+                 },[m
+                 {[m
+                     "role": "user",[m
+[31m-                    "content": prompt[m
+[31m-                }[m
+[32m+[m[32m                    "content": prompt,[m
+[32m+[m[32m                },[m
+             ],[m
+             "temperature": settings.LLM_TEMPERATURE,[m
+[31m-            "max_tokens": settings.LLM_MAX_TOKENS[m
+[32m+[m[32m            "max_tokens": settings.LLM_MAX_TOKENS,[m
+         }[m
+ [m
+         response = requests.post(url, headers=headers, json=payload, timeout=60)[m
+[36m@@ -187,32 +209,132 @@[m [mclass LLMService:[m
+         data = response.json()[m
+         return data["choices"][0]["message"]["content"][m
+ [m
+[31m-    def _fallback_response(self, prompt: str) -> str:[m
+[31m-        return ([m
+[31m-            "Je peux vous aider à dimensionner une installation photovoltaïque. "[m
+[31m-            "Pour commencer, j’ai besoin de votre consommation journalière en kWh, "[m
+[31m-            "votre ville ou vos coordonnées GPS, la surface disponible, le type "[m
+[31m-            "d’installation souhaité et l’autonomie batterie désirée."[m
+[31m-        )[m
+[32m+[m[32m    def _retrieve_rag_context(self, message: str) -> str:[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            logger.info("RAG called for query=%s", message)[m
+[32m+[m[32m            rag_context = self.rag_retriever.retrieve_context_only(message)[m
+[32m+[m[32m            original_length = len(rag_context or "")[m
+[32m+[m[32m            limited_context = (rag_context or "")[:2000][m
+[32m+[m[32m            logger.info("RAG context length before=%s after=%s", original_length, len(limited_context))[m
+[32m+[m[32m            return limited_context[m
+[32m+[m[32m        except Exception as exc:[m
+[32m+[m[32m            logger.exception("RAG retrieval failed for query=%s: %s", message, exc)[m
+[32m+[m[32m            return ""[m
+[32m+[m
+[32m+[m[32m    def _build_rag_query(self, message: str, chat_history: list[dict]) -> str:[m
+[32m+[m[32m        if self._should_skip_rag(message):[m
+[32m+[m[32m            return message[m
+[32m+[m
+[32m+[m[32m        if not self._is_short_followup(message) or not chat_history:[m
+[32m+[m[32m            return message[m
+[32m+[m
+[32m+[m[32m        topic = self._extract_recent_topic(chat_history)[m
+[32m+[m[32m        if not topic:[m
+[32m+[m[32m            return message[m
+[32m+[m
+[32m+[m[32m        return f"{message} about {topic}"[m
+[32m+[m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _is_short_followup(message: str) -> bool:[m
+[32m+[m[32m        normalized = message.strip().lower()[m
+[32m+[m[32m        if LLMService._should_skip_rag(normalized):[m
+[32m+[m[32m            return False[m
+[32m+[m
+[32m+[m[32m        if len(normalized.split()) <= 3:[m
+[32m+[m[32m            return True[m
+[32m+[m
+[32m+[m[32m        exact_followups = {[m
+[32m+[m[32m            "informations",[m
+[32m+[m[32m            "continue",[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if normalized in exact_followups:[m
+[32m+[m[32m            return True[m
+[32m+[m
+[32m+[m[32m        followups = [[m
+[32m+[m[32m            "more details",[m
+[32m+[m[32m            "more information",[m
+[32m+[m[32m            "donne plus",[m
+[32m+[m[32m            "plus de details",[m
+[32m+[m[32m            "plus de détails",[m
+[32m+[m[32m            "translate to french",[m
+[32m+[m[32m            "speak english",[m
+[32m+[m[32m        ][m
+[32m+[m[32m        return any(phrase in normalized for phrase in followups)[m
+[32m+[m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _should_skip_rag(message: str) -> bool:[m
+[32m+[m[32m        normalized = " ".join(message.strip().lower().split())[m
+[32m+[m[32m        if not normalized:[m
+[32m+[m[32m            return True[m
+[32m+[m
+[32m+[m[32m        skip_messages = {[m
+[32m+[m[32m            "hi",[m
+[32m+[m[32m            "hello",[m
+[32m+[m[32m            "bonjour",[m
+[32m+[m[32m            "salut",[m
+[32m+[m[32m            "salam",[m
+[32m+[m[32m            "speak english",[m
+[32m+[m[32m            "in english",[m
+[32m+[m[32m            "answer in english",[m
+[32m+[m[32m            "réponds en français",[m
+[32m+[m[32m            "reponds en francais",[m
+[32m+[m[32m            "répondre en français",[m
+[32m+[m[32m            "repondre en francais",[m
+[32m+[m[32m            "alors repondre en francais",[m
+[32m+[m[32m            "alors réponds en français",[m
+[32m+[m[32m            "alors reponds en francais",[m
+[32m+[m[32m            "translate to french",[m
+[32m+[m[32m            "traduit en français",[m
+[32m+[m[32m            "traduit en francais",[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return normalized in skip_messages[m
+[32m+[m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _extract_recent_topic(chat_history: list[dict]) -> str | None:[m
+[32m+[m[32m        topics = {[m
+[32m+[m[32m            "solar panels": ["panel", "panels", "panneau", "panneaux"],[m
+[32m+[m[32m            "photovoltaic energy": ["photovoltaic", "photovoltaique", "photovoltaïque", "solaire", "solar"],[m
+[32m+[m[32m            "batteries": ["battery", "batterie", "batteries"],[m
+[32m+[m[32m            "inverters": ["inverter", "onduleur", "inverters"],[m
+[32m+[m[32m            "ROI": ["roi", "rentabilite", "rentabilité"],[m
+[32m+[m[32m            "monitoring": ["monitoring", "surveillance"],[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        for item in reversed(chat_history):[m
+[32m+[m[32m            text = f"{item.get('user_message', '')} {item.get('assistant_response', '')}".lower()[m
+[32m+[m[32m            for topic, keywords in topics.items():[m
+[32m+[m[32m                if any(keyword in text for keyword in keywords):[m
+[32m+[m[32m                    return topic[m
+[32m+[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32m    @staticmethod[m
+[32m+[m[32m    def _is_rate_limit_error(exc: Exception) -> bool:[m
+[32m+[m[32m        response = getattr(exc, "response", None)[m
+[32m+[m[32m        return getattr(response, "status_code", None) == 429[m
+ [m
+     def _get_recent_history(self, session_id: str) -> list[dict]:[m
+         if self.db is None:[m
+[31m-            return [][m
+[32m+[m[32m            return IN_MEMORY_HISTORY.get(session_id, [])[-10:][m
+ [m
+[31m-        histories = ([m
+[31m-            self.db.query(ChatHistory)[m
+[31m-            .filter(ChatHistory.session_id == session_id)[m
+[31m-            .order_by(ChatHistory.created_at.asc())[m
+[31m-            .limit(10)[m
+[31m-            .all()[m
+[31m-        )[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            histories = ([m
+[32m+[m[32m                self.db.query(ChatHistory)[m
+[32m+[m[32m                .filter(ChatHistory.session_id == session_id)[m
+[32m+[m[32m                .order_by(ChatHistory.created_at.desc())[m
+[32m+[m[32m                .limit(10)[m
+[32m+[m[32m                .all()[m
+[32m+[m[32m            )[m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            self.db.rollback()[m
+[32m+[m[32m            return IN_MEMORY_HISTORY.get(session_id, [])[-10:][m
+ [m
+         return [[m
+             {[m
+                 "user_message": history.user_message,[m
+[31m-                "assistant_response": history.assistant_response[m
+[32m+[m[32m                "assistant_response": history.assistant_response,[m
+             }[m
+[31m-            for history in histories[m
+[32m+[m[32m            for history in reversed(histories)[m
+         ][m
+ [m
+     def _save_chat_history([m
+[36m@@ -221,8 +343,16 @@[m [mclass LLMService:[m
+         session_id: str,[m
+         user_message: str,[m
+         assistant_response: str,[m
+[31m-        context: dict | None = None[m
+[32m+[m[32m        context: dict | None = None,[m
+     ) -> None:[m
+[32m+[m[32m        IN_MEMORY_HISTORY.setdefault(session_id, []).append([m
+[32m+[m[32m            {[m
+[32m+[m[32m                "user_message": user_message,[m
+[32m+[m[32m                "assistant_response": assistant_response,[m
+[32m+[m[32m            }[m
+[32m+[m[32m        )[m
+[32m+[m[32m        IN_MEMORY_HISTORY[session_id] = IN_MEMORY_HISTORY[session_id][-10:][m
+[32m+[m
+         if self.db is None:[m
+             return[m
+ [m
+[36m@@ -231,8 +361,11 @@[m [mclass LLMService:[m
+             session_id=session_id,[m
+             user_message=user_message,[m
+             assistant_response=assistant_response,[m
+[31m-            context=context[m
+[32m+[m[32m            context=context,[m
+         )[m
+ [m
+[31m-        self.db.add(history)[m
+[31m-        self.db.commit()[m
+\ No newline at end of file[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            self.db.add(history)[m
+[32m+[m[32m            self.db.commit()[m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            self.db.rollback()[m
+[1mdiff --git a/app/services/llm/prompt_builder.py b/app/services/llm/prompt_builder.py[m
+[1mindex d4c2be5..da156ee 100644[m
+[1m--- a/app/services/llm/prompt_builder.py[m
+[1m+++ b/app/services/llm/prompt_builder.py[m
+[36m@@ -4,28 +4,34 @@[m [mfrom app.schemas.chat import ChatRequest[m
+ class PromptBuilder:[m
+     def build_system_prompt(self) -> str:[m
+         return """[m
+[31m-Tu es un assistant intelligent spécialisé dans le dimensionnement des systèmes photovoltaïques.[m
+[31m-[m
+[31m-Ton rôle est d'aider l'utilisateur à :[m
+[31m-- comprendre les systèmes solaires photovoltaïques[m
+[31m-- dimensionner une installation PV[m
+[31m-- comprendre les résultats de calcul[m
+[31m-- interpréter les alertes de monitoring[m
+[31m-- recevoir des recommandations simples et utiles[m
+[31m-[m
+[31m-Tu dois répondre avec un style :[m
+[31m-- clair[m
+[31m-- pédagogique[m
+[31m-- professionnel[m
+[31m-- simple pour un utilisateur non spécialiste[m
+[31m-[m
+[31m-Règles importantes :[m
+[31m-- Ne donne pas de valeurs techniques inventées si les données sont absentes.[m
+[31m-- Si une information manque, explique ce qu'il faut fournir.[m
+[31m-- Si un résultat de calcul est disponible, explique-le clairement.[m
+[31m-- Si une alerte est détectée, explique la cause probable et l'action recommandée.[m
+[31m-- Ne remplace pas les calculs du backend par des suppositions.[m
+[31m-- Pour les réponses techniques, précise les hypothèses utilisées.[m
+[32m+[m[32mYou are SolarAI, an intelligent photovoltaic assistant.[m
+[32m+[m
+[32m+[m[32mAnswer in the same language as the user's last message.[m
+[32m+[m[32mIf the user writes in English, answer in English.[m
+[32m+[m[32mIf the user writes in French, answer in French.[m
+[32m+[m[32mIf the user writes in Arabic, answer in Arabic.[m
+[32m+[m[32mIf the user explicitly asks to translate or answer in a specific language, follow that requested language.[m
+[32m+[m
+[32m+[m[32mUse the conversation history to understand follow-up questions.[m
+[32m+[m[32mUse the RAG context when available.[m
+[32m+[m[32mIf RAG context is available, do not give a short generic answer.[m
+[32m+[m[32mGive clear, useful and sufficiently detailed answers.[m
+[32m+[m
+[32m+[m[32mOnly ask for sizing parameters when the user explicitly asks for sizing, simulation, calculation or recommendation.[m
+[32m+[m[32mDo not ask for sizing parameters when the user only asks for general educational information.[m
+[32m+[m
+[32m+[m[32mFor general questions about photovoltaic panels, provide detailed explanations when relevant:[m
+[32m+[m[32m- role of panels[m
+[32m+[m[32m- how photovoltaic conversion works[m
+[32m+[m[32m- panel technologies[m
+[32m+[m[32m- nominal power in Wc[m
+[32m+[m[32m- efficiency[m
+[32m+[m[32m- orientation[m
+[32m+[m[32m- tilt[m
+[32m+[m[32m- shading[m
+[32m+[m[32m- inverter compatibility[m
+[32m+[m[32m- link with batteries if storage is needed[m
+[32m+[m[32m- selection criteria[m
+ """.strip()[m
+ [m
+     def build_chat_prompt([m
+[36m@@ -36,51 +42,54 @@[m [mRègles importantes :[m
+         agent_result: dict | None = None,[m
+         chat_history: list[dict] | None = None[m
+     ) -> str:[m
+[31m-        parts = [][m
+[31m-[m
+[31m-        parts.append(self.build_system_prompt())[m
+[32m+[m[32m        parts = [self.build_system_prompt()][m
+ [m
+         if chat_history:[m
+[31m-            parts.append("\nHistorique récent de la conversation :")[m
+[32m+[m[32m            parts.append("\nRecent conversation history:")[m
+             for item in chat_history[-5:]:[m
+[31m-                parts.append(f"Utilisateur : {item.get('user_message')}")[m
+[31m-                parts.append(f"Assistant : {item.get('assistant_response')}")[m
+[32m+[m[32m                parts.append(f"User: {item.get('user_message')}")[m
+[32m+[m[32m                assistant_response = str(item.get("assistant_response") or "")[m
+[32m+[m[32m                if len(assistant_response) > 500:[m
+[32m+[m[32m                    assistant_response = assistant_response[:500] + "..."[m
+[32m+[m[32m                parts.append(f"Assistant: {assistant_response}")[m
+ [m
+         if rag_context:[m
+[31m-            parts.append("\nContexte documentaire utile :")[m
+[32m+[m[32m            parts.append("\nRAG context:")[m
+             parts.append(rag_context)[m
+ [m
+         if calculation_result:[m
+[31m-            parts.append("\nRésultat de dimensionnement disponible :")[m
+[32m+[m[32m            parts.append("\nAvailable sizing result:")[m
+             parts.append(str(calculation_result))[m
+ [m
+         if agent_result:[m
+[31m-            parts.append("\nRésultat de l'agent intelligent :")[m
+[32m+[m[32m            parts.append("\nIntelligent agent result:")[m
+             parts.append(str(agent_result))[m
+ [m
+         if request.context:[m
+[31m-            parts.append("\nContexte fourni par le frontend :")[m
+[32m+[m[32m            parts.append("\nFrontend context:")[m
+             parts.append(str(request.context))[m
+ [m
+[31m-        parts.append("\nQuestion utilisateur :")[m
+[32m+[m[32m        parts.append("\nUser's last message:")[m
+         parts.append(request.message)[m
+ [m
+[31m-        parts.append("\nRéponse attendue :")[m
+[32m+[m[32m        parts.append("\nDetailed answer:")[m
+         return "\n".join(parts)[m
+ [m
+     def build_explanation_prompt(self, result: dict) -> str:[m
+         return f"""[m
+[31m-Explique ce résultat de dimensionnement photovoltaïque à un utilisateur non spécialiste.[m
+[32m+[m[32mYou are SolarAI.[m
+[32m+[m[32mExplain this photovoltaic sizing result to a non-specialist user.[m
+[32m+[m[32mAnswer in the same language as the user's last message.[m
+ [m
+[31m-Résultat :[m
+[32m+[m[32mResult:[m
+ {result}[m
+ [m
+[31m-Réponse attendue :[m
+[31m-- résumé clair[m
+[31m-- explication du nombre de panneaux[m
+[31m-- explication de la batterie[m
+[31m-- explication de l'onduleur[m
+[31m-- explication du coût[m
+[31m-- explication du ROI[m
+[31m-- recommandations simples[m
+[31m-""".strip()[m
+\ No newline at end of file[m
+[32m+[m[32mExpected answer:[m
+[32m+[m[32m- clear summary[m
+[32m+[m[32m- explanation of the number of panels[m
+[32m+[m[32m- battery explanation[m
+[32m+[m[32m- inverter explanation[m
+[32m+[m[32m- cost explanation[m
+[32m+[m[32m- ROI explanation[m
+[32m+[m[32

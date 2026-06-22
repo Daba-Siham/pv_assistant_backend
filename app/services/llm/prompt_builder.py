@@ -4,28 +4,40 @@ from app.schemas.chat import ChatRequest
 class PromptBuilder:
     def build_system_prompt(self) -> str:
         return """
-Tu es un assistant intelligent spécialisé dans le dimensionnement des systèmes photovoltaïques.
+You are SolarAI, an intelligent photovoltaic assistant.
 
-Ton rôle est d'aider l'utilisateur à :
-- comprendre les systèmes solaires photovoltaïques
-- dimensionner une installation PV
-- comprendre les résultats de calcul
-- interpréter les alertes de monitoring
-- recevoir des recommandations simples et utiles
+Answer in the same language as the user's last message.
+If the user writes in English, answer in English.
+If the user writes in French, answer in French.
+If the user writes in Arabic, answer in Arabic.
+If the user explicitly asks to translate or answer in a specific language, follow that requested language.
 
-Tu dois répondre avec un style :
-- clair
-- pédagogique
-- professionnel
-- simple pour un utilisateur non spécialiste
+If the user's last message is only a greeting, answer with a short greeting and ask how you can help. Do not explain photovoltaic panels unless the user asks about them.
 
-Règles importantes :
-- Ne donne pas de valeurs techniques inventées si les données sont absentes.
-- Si une information manque, explique ce qu'il faut fournir.
-- Si un résultat de calcul est disponible, explique-le clairement.
-- Si une alerte est détectée, explique la cause probable et l'action recommandée.
-- Ne remplace pas les calculs du backend par des suppositions.
-- Pour les réponses techniques, précise les hypothèses utilisées.
+If the user only asks to switch language, acknowledge briefly in the requested language. Do not continue the previous technical topic unless the user asks to continue.
+
+If the user asks to translate the previous answer, use the conversation history and translate the previous assistant answer.
+
+Use the conversation history to understand follow-up questions.
+Use the RAG context when available.
+If RAG context is available, do not give a short generic answer.
+Give clear, useful and sufficiently detailed answers.
+
+Only ask for sizing parameters when the user explicitly asks for sizing, simulation, calculation or recommendation.
+Do not ask for sizing parameters when the user only asks for general educational information.
+
+For general questions about photovoltaic panels, provide detailed explanations when relevant:
+- role of panels
+- how photovoltaic conversion works
+- panel technologies
+- nominal power in Wc
+- efficiency
+- orientation
+- tilt
+- shading
+- inverter compatibility
+- link with batteries if storage is needed
+- selection criteria
 """.strip()
 
     def build_chat_prompt(
@@ -36,51 +48,54 @@ Règles importantes :
         agent_result: dict | None = None,
         chat_history: list[dict] | None = None
     ) -> str:
-        parts = []
-
-        parts.append(self.build_system_prompt())
+        parts = [self.build_system_prompt()]
 
         if chat_history:
-            parts.append("\nHistorique récent de la conversation :")
+            parts.append("\nRecent conversation history:")
             for item in chat_history[-5:]:
-                parts.append(f"Utilisateur : {item.get('user_message')}")
-                parts.append(f"Assistant : {item.get('assistant_response')}")
+                parts.append(f"User: {item.get('user_message')}")
+                assistant_response = str(item.get("assistant_response") or "")
+                if len(assistant_response) > 500:
+                    assistant_response = assistant_response[:500] + "..."
+                parts.append(f"Assistant: {assistant_response}")
 
         if rag_context:
-            parts.append("\nContexte documentaire utile :")
+            parts.append("\nRAG context:")
             parts.append(rag_context)
 
         if calculation_result:
-            parts.append("\nRésultat de dimensionnement disponible :")
+            parts.append("\nAvailable sizing result:")
             parts.append(str(calculation_result))
 
         if agent_result:
-            parts.append("\nRésultat de l'agent intelligent :")
+            parts.append("\nIntelligent agent result:")
             parts.append(str(agent_result))
 
         if request.context:
-            parts.append("\nContexte fourni par le frontend :")
+            parts.append("\nFrontend context:")
             parts.append(str(request.context))
 
-        parts.append("\nQuestion utilisateur :")
+        parts.append("\nUser's last message:")
         parts.append(request.message)
 
-        parts.append("\nRéponse attendue :")
+        parts.append("\nDetailed answer:")
         return "\n".join(parts)
 
     def build_explanation_prompt(self, result: dict) -> str:
         return f"""
-Explique ce résultat de dimensionnement photovoltaïque à un utilisateur non spécialiste.
+You are SolarAI.
+Explain this photovoltaic sizing result to a non-specialist user.
+Answer in the same language as the user's last message.
 
-Résultat :
+Result:
 {result}
 
-Réponse attendue :
-- résumé clair
-- explication du nombre de panneaux
-- explication de la batterie
-- explication de l'onduleur
-- explication du coût
-- explication du ROI
-- recommandations simples
+Expected answer:
+- clear summary
+- explanation of the number of panels
+- battery explanation
+- inverter explanation
+- cost explanation
+- ROI explanation
+- simple recommendations
 """.strip()

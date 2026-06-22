@@ -12,18 +12,10 @@ class ResponseFormatter:
             "response": response,
             "session_id": session_id,
             "sources": sources or [],
-            "suggested_questions": suggested_questions or self.default_suggestions(),
+            "suggested_questions": suggested_questions or [],
             "calculation_result": calculation_result,
             "agent_result": agent_result
         }
-
-    def default_suggestions(self) -> list[str]:
-        return [
-            "Comment dimensionner mon installation solaire ?",
-            "Combien de panneaux faut-il pour ma consommation ?",
-            "Est-ce que j'ai besoin d'une batterie ?",
-            "Comment calculer le retour sur investissement ?"
-        ]
 
     def format_error_response(
         self,
@@ -34,19 +26,22 @@ class ResponseFormatter:
             "response": message,
             "session_id": session_id,
             "sources": [],
-            "suggested_questions": self.default_suggestions(),
+            "suggested_questions": [],
             "calculation_result": None,
             "agent_result": None
         }
 
     def clean_llm_response(self, response: str) -> str:
         if not response:
-            return "Je n'ai pas pu générer une réponse claire."
+            return "Erreur technique : réponse IA vide."
 
         response = response.strip()
+        if not response:
+            return "Erreur technique : réponse IA vide."
 
         unwanted_prefixes = [
             "Assistant:",
+            "Reponse:",
             "Réponse:",
             "AI:",
             "Bot:"
