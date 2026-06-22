@@ -1,0 +1,11 @@
+id,name,store_type,city,address,latitude,longitude,phone,website,available_products
+1,Solar Maroc Casablanca,physical,Casablanca,Centre ville Casablanca,33.5731,-7.5898,0600000000,https://example.com,panels|batteries|inverters
+2,Energie Solaire Rabat,physical,Rabat,Agdal Rabat,34.0209,-6.8416,0600000001,https://example.com,panels|inverters
+3,Solar Shop Marrakech,physical,Marrakech,Gueliz Marrakech,31.6295,-7.9811,0600000002,https://example.com,panels|batteries|inverters
+4,Nador Solar,physical,Nador,Centre ville Nador,35.1688,-2.9335,0600000003,https://example.com,panels|batteries|inverters
+5,Tanger Energie,physical,Tanger,Centre Tanger,35.7595,-5.8340,0600000004,https://example.com,panels|inverters
+6,Agadir Solar Solutions,physical,Agadir,Centre Agadir,30.4278,-9.5981,0600000005,https://example.com,panels|batteries
+7,Oujda Solar,physical,Oujda,Centre Oujda,34.6814,-1.9086,0600000006,https://example.com,panels|batteries|inverters
+8,Fes Renewable Energy,physical,Fes,Centre Fes,34.0181,-5.0078,0600000007,https://example.com,panels|inverters
+9,Solar Online Morocco,ecommerce,Casablanca,Online,33.5731,-7.5898,0600000008,https://example.com,panels|batteries|inverters
+10,Energie Verte Shop,ecommerce,Rabat,Online,34.0209,-6.8416,0600000009,https://example.com,panels|batteries|inverters

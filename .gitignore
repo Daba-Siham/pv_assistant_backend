@@ -1,0 +1,71 @@
+<<<<<<< HEAD
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+
+# Environment
+.env
+
+# PDFs
+*.pdf
+
+# FAISS
+faiss_index/
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+=======
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# RAG vector store
+vector_store/
+
+# Pytest cache
+.pytest_cache/
+
+# ML models
+app/ml_models/*.joblib
+app/ml_models/*.pkl
+
+# Build files
+dist/
+build/
+*.egg-info/
+>>>>>>> siham/main
+"alembic.ini" 
+
+

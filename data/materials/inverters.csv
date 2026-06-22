@@ -1,0 +1,16 @@
+inverter_id,brand,commercial_name,type,power_w,efficiency,input_voltage,output_voltage,price
+1,Voltronic,Axpert VM III 3kW,hybride,3000,0.93,48,220,4500
+2,Voltronic,Axpert VM IV 5kW,hybride,5000,0.94,48,220,7500
+3,Voltronic,Axpert VM IV 8kW,hybride,8000,0.95,48,220,9800
+4,Huawei,SUN2000 3KTL,on-grid,3000,0.98,600,220,8500
+5,Huawei,SUN2000 5KTL,on-grid,5000,0.98,600,220,12000
+6,Huawei,SUN2000 10KTL,on-grid,10000,0.98,600,220,17500
+7,SMA,Sunny Boy 3.0,on-grid,3000,0.97,600,220,9500
+8,SMA,Sunny Boy 5.0,on-grid,5000,0.97,600,220,13000
+9,SMA,Sunny Tripower 10,on-grid,10000,0.98,600,220,22000
+10,GoodWe,Hybrid 5kW,hybride,5000,0.97,600,220,11500
+11,GoodWe,Hybrid 10kW,hybride,10000,0.97,600,220,19000
+12,Must Energy,PV1800 3kW,off-grid,3000,0.92,48,220,4000
+13,Must Energy,PV1800 5kW,off-grid,5000,0.93,48,220,6200
+14,Victron,MultiPlus II 5kW,off-grid,5000,0.95,48,220,17000
+15,Fronius,Primo 6.0,on-grid,6000,0.98,600,220,14500

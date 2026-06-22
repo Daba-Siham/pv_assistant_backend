@@ -1,0 +1,14 @@
+item_id,item_type,name,unit_price,currency,source
+1,panel,Generic panel 450W,1500,DH,estimated
+2,panel,High efficiency panel 400W,2500,DH,estimated
+3,battery,Lithium battery 2.4 kWh,5500,DH,estimated
+4,battery,Lithium battery 5 kWh,10000,DH,estimated
+5,battery,Lead acid battery 2.4 kWh,3000,DH,estimated
+6,inverter,Hybrid inverter 3 kW,4500,DH,estimated
+7,inverter,Hybrid inverter 5 kW,7500,DH,estimated
+8,inverter,On-grid inverter 5 kW,12000,DH,estimated
+9,installation,Installation cost small system,3000,DH,estimated
+10,installation,Installation cost medium system,6000,DH,estimated
+11,cable,Cable and protection small system,800,DH,estimated
+12,cable,Cable and protection medium system,1500,DH,estimated
+13,maintenance,Annual maintenance,300,DH,estimated

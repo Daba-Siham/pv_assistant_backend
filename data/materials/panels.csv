@@ -1,0 +1,9 @@
+panel_id,brand,commercial_name,technology,power_w,efficiency,voc,isc,temperature_coefficient,price,length,width,area,warranty
+1,Jinko Solar,Tiger Neo 450W,Monocrystalline,450,0.207,49.5,11.5,-0.35,1500,2.10,1.05,2.21,25
+2,Longi,Hi-MO 5 540W,Monocrystalline,540,0.209,49.8,13.8,-0.34,1900,2.25,1.13,2.54,25
+3,Trina Solar,Vertex S 425W,Monocrystalline,425,0.204,41.5,10.8,-0.35,1400,1.76,1.10,1.94,25
+4,JA Solar,JAM72S30 550W,Monocrystalline,550,0.213,50.2,13.9,-0.35,2000,2.28,1.13,2.58,25
+5,Canadian Solar,HiKu 455W,Monocrystalline,455,0.206,49.1,11.6,-0.36,1550,2.11,1.05,2.22,25
+6,SunPower,Maxeon 400W,Monocrystalline,400,0.226,43.0,10.1,-0.29,2600,1.69,1.04,1.76,25
+7,REC Solar,Alpha Pure 410W,Monocrystalline,410,0.219,48.0,10.4,-0.26,2400,1.82,1.02,1.86,25
+8,Generic Solar,Poly 330W,Polycrystalline,330,0.170,45.0,9.2,-0.40,900,1.95,0.99,1.93,15
