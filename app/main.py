@@ -8,6 +8,9 @@ from datetime import datetime
 from app.api.router import api_router
 from app.config import settings
 from app.core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
+from app.db.base import Base
+from app.db.session import engine
+import app.models  # noqa: F401 - ensure SQLAlchemy models are registered
 
 from app.services.calculation.calculation_service import calculate_system
 from app.services.agent.agent_engine import process_chat
@@ -16,7 +19,7 @@ from app.schemas.chat import ChatRequest
 from app.schemas.monitoring import MonitoringSimulationRequest
 from app.services.monitoring.simulation_service import SimulationService
 from pdf.generator import generate_pdf_report
-from app.dependencies import get_db
+from app.dependencies import AuthToken, get_db
 from sqlalchemy.orm import Session
 
 
@@ -78,6 +81,10 @@ def create_application() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
+    @app.on_event("startup")
+    def ensure_database_tables():
+        Base.metadata.create_all(bind=engine)
+
     # =========================================
     # ROOT
     # =========================================
@@ -112,16 +119,47 @@ def create_application() -> FastAPI:
     # =========================================
 
     @app.post("/chat")
-    def chat(data: ChatInput, db: Session = Depends(get_db)):
+    def chat(data: ChatInput, token: AuthToken, db: Session = Depends(get_db)):
         llm_service = LLMService(db=db)
         return llm_service.generate_response(
             request=ChatRequest(
                 message=data.question,
+                question=data.question,
                 session_id=data.session_id,
                 user_id=data.user_id,
                 context=data.context,
-            )
+            ),
+            token=token,
         )
+
+    @app.get("/chat/sessions")
+    def get_chat_sessions(token: AuthToken, db: Session = Depends(get_db)):
+        return LLMService(db=db).get_chat_sessions(token=token)
+
+    @app.get("/chat/sessions/{session_id}/messages")
+    def get_chat_session_messages(session_id: str, token: AuthToken, db: Session = Depends(get_db)):
+        return LLMService(db=db).get_chat_session_messages(token=token, session_id=session_id)
+
+    @app.delete("/chat/sessions/{session_id}")
+    def delete_chat_session(session_id: str, token: AuthToken, db: Session = Depends(get_db)):
+        return LLMService(db=db).delete_chat_session(token=token, session_id=session_id)
+
+    @app.delete("/chat/sessions")
+    def delete_all_chat_sessions(token: AuthToken, db: Session = Depends(get_db)):
+        return LLMService(db=db).delete_all_chat_sessions(token=token)
+
+    @app.get("/chat/history")
+    def get_chat_history(
+        token: AuthToken,
+        db: Session = Depends(get_db),
+        session_id: str | None = None,
+        limit: int = 50,
+    ):
+        return LLMService(db=db).get_chat_history(token=token, session_id=session_id, limit=limit)
+
+    @app.delete("/chat/history")
+    def clear_chat_history(token: AuthToken, db: Session = Depends(get_db), session_id: str | None = None):
+        return LLMService(db=db).clear_chat_history(token=token, session_id=session_id)
 
     # =========================================
     # PDF

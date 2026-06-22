@@ -6,11 +6,13 @@ class ResponseFormatter:
         sources: list[str] | None = None,
         suggested_questions: list[str] | None = None,
         calculation_result: dict | None = None,
-        agent_result: dict | None = None
+        agent_result: dict | None = None,
+        user_id: int | None = None
     ) -> dict:
         return {
             "response": response,
             "session_id": session_id,
+            "user_id": user_id,
             "sources": sources or [],
             "suggested_questions": suggested_questions or [],
             "calculation_result": calculation_result,
@@ -20,11 +22,13 @@ class ResponseFormatter:
     def format_error_response(
         self,
         message: str,
-        session_id: str | None = None
+        session_id: str | None = None,
+        user_id: int | None = None
     ) -> dict:
         return {
             "response": message,
             "session_id": session_id,
+            "user_id": user_id,
             "sources": [],
             "suggested_questions": [],
             "calculation_result": None,

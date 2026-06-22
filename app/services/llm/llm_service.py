@@ -1,10 +1,15 @@
 import uuid
+from datetime import datetime
 
 import requests
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.security import get_user_id_from_token
 from app.models.chat_history import ChatHistory
+from app.models.chat_message import ChatMessage
+from app.models.chat_session import ChatSession
+from app.models.user import User
 from app.schemas.chat import ChatRequest
 from app.services.llm.prompt_builder import PromptBuilder
 from app.services.llm.response_formatter import ResponseFormatter
@@ -24,23 +29,34 @@ class LLMService:
         self.rag_retriever = RAGRetriever()
 
     def generate_response(self, request: ChatRequest, token: str | None = None) -> dict:
+        message_text = request.text.strip()
         session_id = request.session_id or str(uuid.uuid4())
+        current_user = self._get_current_user(token)
+        user_id = current_user.id if current_user else request.user_id
+        chat_session = self._get_or_create_chat_session(user_id, session_id, message_text)
 
         try:
-            full_chat_history = self._get_recent_history(session_id)
+            full_chat_history = (
+                self._get_recent_session_messages(chat_session.id)
+                if chat_session
+                else self._get_recent_history(session_id, user_id=user_id)
+            )
 
-            skip_rag = self._should_skip_rag(request.message)
-            skip_history = self._should_skip_history(request.message)
+            if chat_session:
+                self._save_chat_message(chat_session.id, "user", message_text)
 
-            logger.info("skip_rag=%s for message=%s", skip_rag, request.message)
-            logger.info("skip_history=%s for message=%s", skip_history, request.message)
+            skip_rag = self._should_skip_rag(message_text)
+            skip_history = self._should_skip_history(message_text)
+
+            logger.info("skip_rag=%s for message=%s", skip_rag, message_text)
+            logger.info("skip_history=%s for message=%s", skip_history, message_text)
 
             chat_history_for_prompt = [] if skip_history else full_chat_history
 
             if skip_rag:
                 rag_context = ""
             else:
-                rag_query = self._build_rag_query(request.message, full_chat_history)
+                rag_query = self._build_rag_query(message_text, full_chat_history)
                 logger.info("rag_query=%s", rag_query)
                 rag_context = self._retrieve_rag_context(rag_query)
 
@@ -50,16 +66,22 @@ class LLMService:
                 calculation_result=None,
                 agent_result=None,
                 chat_history=chat_history_for_prompt,
+                user_profile=self._build_user_profile(current_user),
             )
             logger.info("prompt length=%s", len(prompt))
 
             raw_response = self._call_llm(prompt)
             response = self.response_formatter.clean_llm_response(raw_response)
 
+            if chat_session:
+                self._save_chat_message(chat_session.id, "assistant", response)
+                chat_session.updated_at = datetime.utcnow()
+                self.db.commit()
+
             self._save_chat_history(
-                user_id=request.user_id,
+                user_id=user_id,
                 session_id=session_id,
-                user_message=request.message,
+                user_message=message_text,
                 assistant_response=response,
                 context=request.context,
             )
@@ -67,6 +89,7 @@ class LLMService:
             return self.response_formatter.format_chat_response(
                 response=response,
                 session_id=session_id,
+                user_id=user_id,
             )
 
         except Exception as exc:
@@ -86,20 +109,28 @@ class LLMService:
         response = self._call_llm(prompt)
         return self.response_formatter.clean_llm_response(response)
 
-    def get_chat_history(self, token: str | None = None) -> list:
+    def get_chat_history(
+        self,
+        token: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+    ) -> list:
         if self.db is None:
             return []
 
-        histories = (
-            self.db.query(ChatHistory)
-            .order_by(ChatHistory.created_at.desc())
-            .limit(50)
-            .all()
-        )
+        user = self._get_current_user(token)
+        if not user:
+            return []
+
+        query = self.db.query(ChatHistory).filter(ChatHistory.user_id == user.id)
+        if session_id:
+            query = query.filter(ChatHistory.session_id == session_id)
+
+        histories = query.order_by(ChatHistory.created_at.desc()).limit(limit).all()
 
         return histories
 
-    def clear_chat_history(self, token: str | None = None) -> dict:
+    def clear_chat_history(self, token: str | None = None, session_id: str | None = None) -> dict:
         IN_MEMORY_HISTORY.clear()
 
         if self.db is None:
@@ -108,13 +139,203 @@ class LLMService:
                 "message": "Base de donnees non disponible",
             }
 
-        self.db.query(ChatHistory).delete()
+        user = self._get_current_user(token)
+        if not user:
+            return {
+                "success": False,
+                "message": "Utilisateur non authentifie",
+            }
+
+        query = self.db.query(ChatHistory).filter(ChatHistory.user_id == user.id)
+        if session_id:
+            query = query.filter(ChatHistory.session_id == session_id)
+
+        deleted = query.delete(synchronize_session=False)
         self.db.commit()
 
         return {
             "success": True,
+            "deleted": deleted,
             "message": "Historique supprime avec succes",
         }
+
+    def get_chat_sessions(self, token: str | None = None) -> list[dict]:
+        if self.db is None:
+            return []
+
+        user = self._get_current_user(token)
+        if not user:
+            return []
+
+        sessions = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.user_id == user.id)
+            .order_by(ChatSession.updated_at.desc())
+            .all()
+        )
+
+        result = []
+        for session in sessions:
+            last_message = (
+                self.db.query(ChatMessage)
+                .filter(ChatMessage.session_id == session.id)
+                .order_by(ChatMessage.created_at.desc())
+                .first()
+            )
+            result.append(
+                {
+                    "id": session.id,
+                    "session_id": session.session_id,
+                    "title": session.title,
+                    "created_at": session.created_at,
+                    "updated_at": session.updated_at,
+                    "last_message": last_message.content if last_message else None,
+                }
+            )
+        return result
+
+    def get_chat_session_messages(self, token: str | None, session_id: str) -> list[ChatMessage]:
+        if self.db is None:
+            return []
+
+        user = self._get_current_user(token)
+        if not user:
+            return []
+
+        session = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.user_id == user.id, ChatSession.session_id == session_id)
+            .first()
+        )
+        if not session:
+            return []
+
+        return (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.session_id == session.id)
+            .order_by(ChatMessage.created_at.asc())
+            .all()
+        )
+
+    def delete_chat_session(self, token: str | None, session_id: str) -> dict:
+        if self.db is None:
+            return {"success": False, "message": "Base de donnees non disponible"}
+
+        user = self._get_current_user(token)
+        if not user:
+            return {"success": False, "message": "Utilisateur non authentifie"}
+
+        deleted = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.user_id == user.id, ChatSession.session_id == session_id)
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return {"success": True, "deleted": deleted}
+
+    def delete_all_chat_sessions(self, token: str | None) -> dict:
+        if self.db is None:
+            return {"success": False, "message": "Base de donnees non disponible"}
+
+        user = self._get_current_user(token)
+        if not user:
+            return {"success": False, "message": "Utilisateur non authentifie"}
+
+        deleted = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.user_id == user.id)
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return {"success": True, "deleted": deleted}
+
+    def _get_current_user(self, token: str | None) -> User | None:
+        if self.db is None or not token:
+            return None
+
+        user_id = get_user_id_from_token(token)
+        if user_id is None:
+            return None
+
+        return self.db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def _build_user_profile(user: User | None) -> dict | None:
+        if not user:
+            return None
+
+        return {
+            "name": user.full_name,
+            "email": user.email,
+            "knowledge_level": user.knowledge_level,
+        }
+
+    def _get_or_create_chat_session(
+        self,
+        user_id: int | None,
+        session_id: str,
+        first_message: str,
+    ) -> ChatSession | None:
+        if self.db is None or user_id is None:
+            return None
+
+        chat_session = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.user_id == user_id, ChatSession.session_id == session_id)
+            .first()
+        )
+        if chat_session:
+            return chat_session
+
+        chat_session = ChatSession(
+            user_id=user_id,
+            session_id=session_id,
+            title=self._make_session_title(first_message),
+        )
+        self.db.add(chat_session)
+        self.db.commit()
+        self.db.refresh(chat_session)
+        return chat_session
+
+    @staticmethod
+    def _make_session_title(message: str) -> str:
+        words = message.strip().split()
+        return " ".join(words[:6])[:255] or "Nouvelle conversation"
+
+    def _save_chat_message(self, session_pk: int, role: str, content: str) -> None:
+        if self.db is None:
+            return
+
+        self.db.add(ChatMessage(session_id=session_pk, role=role, content=content))
+        self.db.commit()
+
+    def _get_recent_session_messages(self, session_pk: int, limit: int = 10) -> list[dict]:
+        if self.db is None:
+            return []
+
+        messages = (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.session_id == session_pk)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        pairs = []
+        current_user_message = None
+        for message in reversed(messages):
+            if message.role == "user":
+                current_user_message = message.content
+            elif message.role == "assistant" and current_user_message:
+                pairs.append(
+                    {
+                        "user_message": current_user_message,
+                        "assistant_response": message.content,
+                    }
+                )
+                current_user_message = None
+
+        return pairs
 
     def _call_llm(self, prompt: str, **_: object) -> str:
         provider = settings.LLM_PROVIDER.lower()
@@ -348,18 +569,16 @@ class LLMService:
         response = getattr(exc, "response", None)
         return getattr(response, "status_code", None) == 429
 
-    def _get_recent_history(self, session_id: str) -> list[dict]:
+    def _get_recent_history(self, session_id: str, user_id: int | None = None) -> list[dict]:
         if self.db is None:
             return IN_MEMORY_HISTORY.get(session_id, [])[-10:]
 
         try:
-            histories = (
-                self.db.query(ChatHistory)
-                .filter(ChatHistory.session_id == session_id)
-                .order_by(ChatHistory.created_at.desc())
-                .limit(10)
-                .all()
-            )
+            query = self.db.query(ChatHistory).filter(ChatHistory.session_id == session_id)
+            if user_id is not None:
+                query = query.filter(ChatHistory.user_id == user_id)
+
+            histories = query.order_by(ChatHistory.created_at.desc()).limit(10).all()
         except Exception:
             self.db.rollback()
             return IN_MEMORY_HISTORY.get(session_id, [])[-10:]

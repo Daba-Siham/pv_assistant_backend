@@ -51,9 +51,21 @@ For general questions about photovoltaic panels, provide detailed explanations w
         rag_context: str | None = None,
         calculation_result: dict | None = None,
         agent_result: dict | None = None,
-        chat_history: list[dict] | None = None
+        chat_history: list[dict] | None = None,
+        user_profile: dict | None = None
     ) -> str:
         parts = [self.build_system_prompt()]
+
+        if user_profile:
+            parts.append("\nCurrent user profile:")
+            parts.append(f"Name: {user_profile.get('name')}")
+            parts.append(f"Email: {user_profile.get('email')}")
+            parts.append(f"Knowledge level: {user_profile.get('knowledge_level')}")
+            parts.append(
+                "Use this profile only to personalize naturally. "
+                "If the user asks what their name is, answer using the profile name. "
+                "Do not expose the email unless useful or explicitly asked."
+            )
 
         if chat_history:
             parts.append("\nRecent conversation history:")
@@ -81,7 +93,7 @@ For general questions about photovoltaic panels, provide detailed explanations w
             parts.append(str(request.context))
 
         parts.append("\nUser's last message:")
-        parts.append(request.message)
+        parts.append(request.text)
 
         parts.append("\nDetailed answer:")
         return "\n".join(parts)

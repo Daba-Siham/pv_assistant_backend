@@ -18,5 +18,6 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     chat_histories = relationship("ChatHistory", back_populates="user", cascade="all, delete-orphan")
+    chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     simulation_results = relationship("SimulationResult", back_populates="user", cascade="all, delete-orphan")
     monitoring_events = relationship("MonitoringEvent", back_populates="user", cascade="all, delete-orphan")
