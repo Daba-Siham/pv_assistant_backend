@@ -141,6 +141,18 @@ def confirm_monitoring(
         db.delete(old)
         db.commit()
 
+    panels_result = request.panels_result or {}
+    if request.panel_model is not None:
+        panels_result = {**panels_result, "panel_model": request.panel_model}
+
+    inverter_result = request.inverter_result or {}
+    if request.inverter_model is not None:
+        inverter_result = {**inverter_result, "inverter_model": request.inverter_model}
+
+    battery_result = request.battery_result or {}
+    if request.battery_model is not None:
+        battery_result = {**battery_result, "battery_model": request.battery_model}
+
     # Sauvegarder nouveau rapport confirmé
     simulation = SimulationResult(
         user_id=user_id,
@@ -157,9 +169,9 @@ def confirm_monitoring(
         total_cost=request.total_cost,
         roi_years=request.roi_years,
         annual_saving=request.annual_saving,
-        panels_result=request.panels_result,
-        battery_result=request.battery_result,
-        inverter_result=request.inverter_result,
+        panels_result=panels_result,
+        battery_result=battery_result,
+        inverter_result=inverter_result,
         cost_result=request.cost_result,
         roi_result=request.roi_result,
         solar_data=request.solar_data,

@@ -102,6 +102,9 @@ class MonitoringConfirmRequest(BaseModel):
     total_cost: float | None = None
     roi_years: float | None = None
     annual_saving: float | None = None
+    panel_model: str | None = None
+    inverter_model: str | None = None
+    battery_model: str | None = None
     panels_result: dict | None = None
     battery_result: dict | None = None
     inverter_result: dict | None = None
