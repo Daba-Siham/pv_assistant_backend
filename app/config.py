@@ -30,7 +30,8 @@ class Settings(BaseSettings):
             "http://localhost:5173",
             "http://localhost:3000",
             "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000"
+            "http://127.0.0.1:3000",
+            "http://10.188.164.177:5173"
         ]
     )
 
@@ -78,6 +79,10 @@ class Settings(BaseSettings):
     DEFAULT_SHADE_FACTOR: float = Field(default=1.0)
 
     EXPOSE_RAW_ML_RESPONSE: bool = Field(default=False)
+
+    WEB_PUSH_VAPID_PRIVATE_KEY: str | None = Field(default=None)
+    WEB_PUSH_VAPID_PUBLIC_KEY: str | None = Field(default=None)
+    WEB_PUSH_VAPID_EMAIL: str = Field(default="admin@solarai.local")
 
     LOG_LEVEL: str = Field(default="INFO")
 

@@ -183,6 +183,20 @@ def confirm_monitoring(
     db.commit()
     db.refresh(simulation)
 
+    try:
+        from app.services.notification_service import send_notification
+
+        send_notification(
+            db=db,
+            user_id=user_id,
+            title="Simulation confirmée",
+            message="Votre monitoring photovoltaïque est maintenant actif.",
+            notification_type="simulation_confirmed",
+            payload={"url": "/monitoring", "simulation_id": simulation.id},
+        )
+    except Exception:
+        pass
+
     return {
         "success": True,
         "simulation_id": simulation.id,
