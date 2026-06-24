@@ -15,6 +15,30 @@ class UserSimulationService:
         # Cherche user_id, sinon renvoie USERS_SIMULATIONS[1]
         return USERS_SIMULATIONS.get(user_id, USERS_SIMULATIONS[1])
 
+    def deduplicate_alerts(self, alerts):
+        seen = set()
+        result = []
+
+        for alert in alerts or []:
+            if isinstance(alert, dict):
+                key = (
+                    alert.get("alert_type", ""),
+                    alert.get("message", "")
+                )
+            else:
+                key = (
+                    getattr(alert, "alert_type", ""),
+                    getattr(alert, "message", "")
+                )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            result.append(alert)
+
+        return result
+
     def merge_with_report(self, simulation: dict, report_data: dict | None) -> dict:
         """
         Merge la simulation dynamique avec les données du rapport.
@@ -22,12 +46,15 @@ class UserSimulationService:
         La simulation fournit : données heure par heure
         """
         if report_data is None:
-            return simulation
+            merged_simulation = dict(simulation)
+            merged_simulation["alerts"] = self.deduplicate_alerts(merged_simulation.get("alerts", []))
+            return merged_simulation
 
+        alerts = self.deduplicate_alerts(simulation["alerts"])
         return {
             # Données dynamiques (from simulation)
             "data": simulation["data"],
-            "alerts": simulation["alerts"],
+            "alerts": alerts,
             "summary": simulation["summary"],
 
             # Config système (from rapport) — enrichissement

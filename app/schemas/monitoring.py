@@ -54,6 +54,12 @@ class AnomalyDetectionRequest(BaseModel):
     temperature: float | None = None
 
 
+class MonitoringCurrentAlertRequest(BaseModel):
+    alert_type: str
+    message: str
+    severity: str = "warning"
+
+
 class AlertResponse(BaseModel):
     id: int | None = None
     severity: str

@@ -53,7 +53,7 @@ class MonitoringService:
         if self.db is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Base de données non disponible."
+                detail="Base de donnÃ©es non disponible."
             )
 
         user_id = get_user_id_from_token(token) if token else None
@@ -95,28 +95,6 @@ class MonitoringService:
         if response.alerts:
             saved_alerts = self.alert_service.save_alerts(response.alerts, user_id=user_id)
             response.alerts = saved_alerts
-            if self.db is not None and user_id is not None:
-                try:
-                    from app.services.notification_service import send_notification
-
-                    for alert in saved_alerts:
-                        alert_type = getattr(alert, "alert_type", "") or ""
-                        message = getattr(alert, "message", "") or ""
-                        severity = getattr(alert, "severity", None)
-                        is_battery_alert = "battery" in alert_type.lower() or "batterie" in message.lower()
-                        if is_battery_alert and request.battery_level_percent is None:
-                            continue
-                        send_notification(
-                            db=self.db,
-                            user_id=user_id,
-                            title="Alerte monitoring",
-                            message=message or "Une alerte monitoring a été détectée.",
-                            notification_type="monitoring_alert",
-                            severity=severity,
-                            payload={"url": "/monitoring", "alert_type": alert_type},
-                        )
-                except Exception:
-                    pass
 
         return response
 

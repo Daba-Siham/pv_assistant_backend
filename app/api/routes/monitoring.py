@@ -1,22 +1,83 @@
-from fastapi import APIRouter, status
+from datetime import datetime, timedelta
 
-from app.dependencies import DBSession, AuthToken
+from fastapi import APIRouter, HTTPException, status
+
+from app.core.security import get_user_id_from_token
+from app.dependencies import AuthToken, DBSession
+from app.models.notification import Notification
+from app.models.simulation_result import SimulationResult
 from app.schemas.monitoring import (
+    AlertResponse,
+    AnomalyDetectionRequest,
+    AnomalyDetectionResponse,
+    EnergyPredictionRequest,
+    EnergyPredictionResponse,
+    MonitoringConfirmRequest,
+    MonitoringCurrentAlertRequest,
     MonitoringSimulationRequest,
     MonitoringSimulationResponse,
     MonitoringStatusResponse,
-    AnomalyDetectionRequest,
-    AnomalyDetectionResponse,
-    AlertResponse,
-    EnergyPredictionRequest,
-    EnergyPredictionResponse,
-    MonitoringConfirmRequest, 
 )
 from app.services.monitoring.monitoring_service import MonitoringService
 from app.services.monitoring.user_simulation_service import UserSimulationService
-from app.core.security import get_user_id_from_token
+from app.services.notification_service import send_notification
 
 router = APIRouter()
+
+
+def notify_monitoring_alerts_once(db, user_id: int, alerts: list, has_battery: bool):
+    print("NOTIFY ALERTS CALLED user_id=", user_id, "alerts_count=", len(alerts or []))
+    for alert in alerts or []:
+        if isinstance(alert, dict):
+            alert_type = alert.get("alert_type", "")
+            message = alert.get("message", "")
+            severity = alert.get("severity", "warning")
+        else:
+            alert_type = getattr(alert, "alert_type", "")
+            message = getattr(alert, "message", "")
+            severity = getattr(alert, "severity", "warning")
+
+        if not message:
+            continue
+
+        print("ALERT TO NOTIFY =", alert_type, severity, message)
+
+        text = f"{alert_type} {message}".lower()
+        is_battery_alert = "battery" in text or "batterie" in text
+
+        if is_battery_alert and not has_battery:
+            print("SKIP BATTERY ALERT WITHOUT BATTERY =", message)
+            continue
+
+        existing = (
+            db.query(Notification)
+            .filter(
+                Notification.user_id == user_id,
+                Notification.notification_type == "monitoring_alert",
+                Notification.message == message,
+                Notification.created_at >= datetime.utcnow() - timedelta(hours=6),
+            )
+            .first()
+        )
+
+        if existing:
+            print("SKIP DUPLICATE ALERT =", message)
+            continue
+
+        print("SEND MONITORING NOTIFICATION =", message)
+        send_notification(
+            db=db,
+            user_id=user_id,
+            title="Alerte monitoring",
+            message=message,
+            notification_type="monitoring_alert",
+            severity=severity,
+            payload={
+                "url": "/monitoring",
+                "alert_type": alert_type,
+            },
+        )
+        print("MONITORING NOTIFICATION CREATED")
 
 
 @router.post("/simulate", response_model=MonitoringSimulationResponse, status_code=status.HTTP_200_OK)
@@ -33,8 +94,99 @@ def get_system_status(simulation_id: int, db: DBSession, token: AuthToken):
 
 @router.post("/detect-anomalies", response_model=AnomalyDetectionResponse, status_code=status.HTTP_200_OK)
 def detect_anomalies(request: AnomalyDetectionRequest, db: DBSession, token: AuthToken):
+    if token is None:
+        raise HTTPException(status_code=401, detail="Token requis.")
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Token invalide.")
+
     monitoring_service = MonitoringService(db=db)
-    return monitoring_service.detect_anomalies(request=request, token=token)
+    response = monitoring_service.detect_anomalies(request=request, token=token)
+
+    notify_monitoring_alerts_once(
+        db=db,
+        user_id=user_id,
+        alerts=response.alerts or [],
+        has_battery=request.battery_level_percent is not None,
+    )
+
+    return response
+
+
+@router.post("/notify-current-alert")
+def notify_current_alert(request: MonitoringCurrentAlertRequest, db: DBSession, token: AuthToken):
+    if token is None:
+        raise HTTPException(status_code=401, detail="Token requis.")
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Token invalide.")
+
+    existing = (
+        db.query(Notification)
+        .filter(
+            Notification.user_id == user_id,
+            Notification.notification_type == "monitoring_alert",
+            Notification.message == request.message,
+            Notification.created_at >= datetime.utcnow() - timedelta(hours=6),
+        )
+        .order_by(Notification.created_at.desc())
+        .first()
+    )
+
+    if existing and existing.sent_at is not None:
+        return {
+            "success": True,
+            "status": "already_sent",
+            "notification_id": existing.id,
+        }
+
+    if existing and existing.sent_at is None:
+        from app.services.notification_service import send_web_push_to_user
+
+        push_sent = send_web_push_to_user(
+            db=db,
+            user_id=user_id,
+            title=existing.title,
+            message=existing.message,
+            payload=existing.payload or {
+                "url": "/monitoring",
+                "alert_type": request.alert_type,
+            },
+        )
+
+        if push_sent:
+            existing.sent_at = datetime.utcnow()
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
+
+        return {
+            "success": True,
+            "status": "resent" if push_sent else "created_not_sent",
+            "notification_id": existing.id,
+        }
+
+    notification = send_notification(
+        db=db,
+        user_id=user_id,
+        title="Alerte monitoring",
+        message=request.message,
+        notification_type="monitoring_alert",
+        severity=request.severity,
+        payload={
+            "url": "/monitoring",
+            "alert_type": request.alert_type,
+        },
+    )
+
+    return {
+        "success": True,
+        "status": "created",
+        "notification_id": notification.id,
+        "sent": notification.sent_at is not None,
+    }
 
 
 @router.get("/alerts", response_model=list[AlertResponse], status_code=status.HTTP_200_OK)
@@ -48,11 +200,9 @@ def predict_energy(request: EnergyPredictionRequest, db: DBSession, token: AuthT
     monitoring_service = MonitoringService(db=db)
     return monitoring_service.predict_energy(request=request, token=token)
 
+
 @router.get("/my-simulation")
 def get_my_simulation(token: AuthToken, db: DBSession):
-    from fastapi import HTTPException
-    from app.models.simulation_result import SimulationResult
-
     if token is None:
         raise HTTPException(status_code=401, detail="Token requis.")
 
@@ -85,7 +235,18 @@ def get_my_simulation(token: AuthToken, db: DBSession):
     )
 
     report_data = None
+    has_battery = False
     if report:
+        installation_type = report.installation_type or ""
+        battery_capacity = report.battery_capacity_kwh or 0
+        normalized_type = installation_type.lower().replace("_", "-")
+        has_battery = (
+            "hybride" in normalized_type
+            or "hybrid" in normalized_type
+            or "off-grid" in normalized_type
+            or battery_capacity > 0
+        )
+
         report_data = {
             "panels": report.panels_result or {},
             "battery": report.battery_result or {},
@@ -104,6 +265,9 @@ def get_my_simulation(token: AuthToken, db: DBSession):
         }
 
     merged = service.merge_with_report(simulation, report_data)
+    print("MONITORING MERGED ALERTS =", merged.get("alerts", []))
+    print("MONITORING USER ID =", user_id)
+    print("MONITORING HAS BATTERY =", has_battery)
 
     return {
         "user_id": user_id,
@@ -118,9 +282,6 @@ def confirm_monitoring(
     token: AuthToken,
     db: DBSession
 ):
-    from fastapi import HTTPException
-    from app.models.simulation_result import SimulationResult
-
     if token is None:
         raise HTTPException(status_code=401, detail="Token requis.")
 
@@ -150,8 +311,28 @@ def confirm_monitoring(
         inverter_result = {**inverter_result, "inverter_model": request.inverter_model}
 
     battery_result = request.battery_result or {}
-    if request.battery_model is not None:
-        battery_result = {**battery_result, "battery_model": request.battery_model}
+    battery_capacity = request.battery_capacity_kwh or 0
+    if battery_capacity > 0:
+        battery_result = {
+            **battery_result,
+            "required_capacity_kwh": battery_capacity,
+            "battery_capacity_kwh": battery_capacity,
+            "battery_count": battery_result.get("battery_count") or 1,
+            "battery_type": (
+                battery_result.get("battery_type")
+                or request.battery_model
+                or battery_result.get("battery_model")
+                or "Batterie lithium LiFePO4"
+            ),
+            "battery_model": (
+                request.battery_model
+                or battery_result.get("battery_model")
+                or battery_result.get("battery_type")
+                or "Batterie lithium LiFePO4"
+            ),
+        }
+    else:
+        battery_result = {}
 
     # Sauvegarder nouveau rapport confirmé
     simulation = SimulationResult(
@@ -184,8 +365,6 @@ def confirm_monitoring(
     db.refresh(simulation)
 
     try:
-        from app.services.notification_service import send_notification
-
         send_notification(
             db=db,
             user_id=user_id,
@@ -194,8 +373,8 @@ def confirm_monitoring(
             notification_type="simulation_confirmed",
             payload={"url": "/monitoring", "simulation_id": simulation.id},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        print("MONITORING NOTIFICATION ERROR =", repr(exc))
 
     return {
         "success": True,
