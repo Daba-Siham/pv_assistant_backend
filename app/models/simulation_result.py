@@ -66,6 +66,8 @@ class SimulationResult(Base):
     stores_result = Column(JSONB, nullable=True)
     recommendations = Column(JSONB, nullable=True)
     assumptions = Column(JSONB, nullable=True)
+    report_pdf_path = Column(Text, nullable=True)
+    report_pdf_filename = Column(String(255), nullable=True)
 
     status = Column(String(50), default="completed", nullable=False)
     error_message = Column(Text, nullable=True)

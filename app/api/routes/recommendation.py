@@ -18,6 +18,7 @@ from pdf.generator import generate_recommendation_pdf_report
 
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parents[3]
+LAST_GENERATED_PDF = {"path": None, "filename": None}
 
 
 def get_nested(data: dict, *paths: str, default=None):
@@ -133,6 +134,9 @@ def generate_pv_recommendation_pdf(
         filename=str(filepath),
         recommendation_result=result,
     )
+
+    LAST_GENERATED_PDF["path"] = str(filepath)
+    LAST_GENERATED_PDF["filename"] = filename
 
     return FileResponse(
         path=str(filepath),
@@ -330,6 +334,11 @@ def save_pv_recommendation(
     )
 
     db.add(simulation)
+    pdf_path = LAST_GENERATED_PDF.get("path")
+    pdf_filename = LAST_GENERATED_PDF.get("filename")
+    if pdf_path and pdf_filename:
+        simulation.report_pdf_path = pdf_path
+        simulation.report_pdf_filename = pdf_filename
     db.commit()
     db.refresh(simulation)
 
