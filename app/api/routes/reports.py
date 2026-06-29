@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
@@ -145,6 +146,64 @@ def _get_owned_report(db, report_id: int, user_id: int) -> SimulationResult:
     return report
 
 
+def _find_report_pdf_by_filename(filename: str | None) -> Path | None:
+    if not filename:
+        return None
+
+    reports_dir = Path(__file__).resolve().parents[3] / "generated_reports"
+    if not reports_dir.exists():
+        return None
+
+    direct_path = reports_dir / filename
+    if direct_path.exists():
+        return direct_path
+
+    matches = [path for path in reports_dir.rglob(filename) if path.is_file()]
+    if not matches:
+        return None
+
+    return sorted(matches, key=lambda path: str(path))[0]
+
+
+def _parse_report_pdf_timestamp(pdf_path: Path) -> datetime | None:
+    stem = pdf_path.stem
+    prefix = "rapport_recommandation_pv_"
+    if not stem.startswith(prefix):
+        return None
+
+    timestamp_text = stem[len(prefix):]
+    try:
+        return datetime.strptime(timestamp_text, "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def _find_report_pdf_by_created_at(report: SimulationResult) -> Path | None:
+    reports_dir = Path(__file__).resolve().parents[3] / "generated_reports"
+    if not reports_dir.exists():
+        return None
+
+    created_at = report.created_at
+    if created_at is None:
+        return None
+
+    matches: list[tuple[float, Path]] = []
+    for pdf_path in reports_dir.rglob("rapport_recommandation_pv_*.pdf"):
+        if not pdf_path.is_file():
+            continue
+        pdf_timestamp = _parse_report_pdf_timestamp(pdf_path)
+        if pdf_timestamp is None:
+            continue
+        delta = abs((pdf_timestamp - created_at).total_seconds())
+        if delta <= timedelta(minutes=10).total_seconds():
+            matches.append((delta, pdf_path))
+
+    if len(matches) != 1:
+        return None
+
+    return matches[0][1]
+
+
 @router.get("/my-reports", status_code=status.HTTP_200_OK)
 def list_my_reports(db: DBSession, token: AuthToken):
     user_id = _get_connected_user_id(token)
@@ -173,17 +232,26 @@ def get_report(report_id: int, db: DBSession, token: AuthToken):
 def get_report_pdf(report_id: int, db: DBSession, token: AuthToken):
     user_id = _get_connected_user_id(token)
     report = _get_owned_report(db=db, report_id=report_id, user_id=user_id)
-    if not report.report_pdf_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="PDF report file not linked to this report.",
-        )
+    print("OPEN REPORT ID =", report_id)
+    print("OPEN REPORT PDF PATH =", report.report_pdf_path)
+    print("OPEN REPORT PDF FILENAME =", report.report_pdf_filename)
 
-    pdf_path = Path(report.report_pdf_path)
-    if not pdf_path.exists():
+    pdf_path = Path(report.report_pdf_path) if report.report_pdf_path else None
+    if not pdf_path or not pdf_path.exists():
+        fallback_path = _find_report_pdf_by_filename(report.report_pdf_filename)
+        if fallback_path is None:
+            fallback_path = _find_report_pdf_by_created_at(report)
+        if fallback_path:
+            pdf_path = fallback_path
+            report.report_pdf_path = str(pdf_path)
+            report.report_pdf_filename = pdf_path.name
+            db.commit()
+            db.refresh(report)
+
+    if pdf_path is None or not pdf_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="PDF report file not found.",
+            detail="PDF report is not linked to this saved report. Generate a new report or relink existing PDF.",
         )
 
     return FileResponse(

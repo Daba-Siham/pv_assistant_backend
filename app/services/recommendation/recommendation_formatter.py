@@ -2,6 +2,7 @@ import math
 from typing import Any
 
 from app.services.recommendation.scenario_detector import detect_project_scenarios
+from app.services.shared.utils import has_battery_system, is_on_grid, normalize_installation_type
 
 
 SCENARIO_LABELS = {
@@ -142,11 +143,8 @@ def format_battery_range(
     key = _installation_key(installation_type)
     autonomy = _as_float(autonomy_days) or 0
 
-    if key == "on_grid" and autonomy == 0:
+    if is_on_grid(key):
         return "aucune batterie nécessaire"
-
-    if key == "on_grid" and autonomy > 0:
-        return "batterie à prévoir seulement si le projet passe en configuration hybride"
 
     if str(battery_required).strip().lower() in {"no", "false", "0", "none", "non"}:
         return "aucune batterie nécessaire"
@@ -489,8 +487,11 @@ def build_user_recommendation_data(
     scenario_analysis = detect_project_scenarios(user_inputs=user_inputs, ml_result=ml_result)
     key = _installation_key(installation_type)
     battery_required = ml_result.get("battery_required") or ml_result.get("battery_needed")
-    battery_visible = not (key == "on_grid" and (_as_float(autonomy_days) or 0) == 0)
+    battery_visible = has_battery_system(installation_type, ml_result.get("battery_capacity_kwh"))
     surface_status = surface_check.get("status") if surface_check else None
+
+    if is_on_grid(key):
+        autonomy_days = 0
 
     recommendation_data = {
         "city": user_inputs.get("city") or "votre région",

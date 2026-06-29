@@ -69,7 +69,12 @@ def create_application() -> FastAPI:
         allow_origins=["*"],
         allow_credentials=False,
         allow_methods=["*"],
-        allow_headers=["*"]
+        allow_headers=["*"],
+        expose_headers=[
+            "X-Report-Pdf-Path",
+            "X-Report-Pdf-Filename",
+            "Content-Disposition",
+        ],
     )
 
     app.add_middleware(SecurityHeadersMiddleware)

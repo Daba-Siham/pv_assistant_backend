@@ -35,6 +35,39 @@ def normalize_text(text: str | None) -> str:
     return text.lower().strip()
 
 
+def normalize_installation_type(value) -> str:
+    return str(value or "").lower().replace("_", "-").strip()
+
+
+def is_on_grid(value) -> bool:
+    normalized = normalize_installation_type(value)
+    return (
+        normalized in {"on-grid", "ongrid", "connectee-au-reseau", "connectée-au-réseau"}
+        or "on-grid" in normalized
+        or "réseau" in normalized
+        or "reseau" in normalized
+    )
+
+
+def has_battery_system(installation_type, battery_capacity_kwh=0) -> bool:
+    normalized = normalize_installation_type(installation_type)
+
+    if "on-grid" in normalized or "reseau" in normalized or "réseau" in normalized:
+        return False
+
+    try:
+        battery_capacity = float(battery_capacity_kwh or 0)
+    except (TypeError, ValueError):
+        battery_capacity = 0
+
+    return (
+        "hybrid" in normalized
+        or "hybride" in normalized
+        or "off-grid" in normalized
+        or battery_capacity > 0
+    )
+
+
 def haversine_distance(
     lat1: float,
     lon1: float,
@@ -96,12 +129,4 @@ def temperature_factor(temperature_avg: float | None) -> float:
 
 
 def installation_requires_battery(installation_type: str | None) -> bool:
-    installation_type = normalize_text(installation_type)
-
-    if installation_type == "off-grid":
-        return True
-
-    if installation_type == "hybride":
-        return True
-
-    return False
+    return has_battery_system(installation_type)

@@ -14,6 +14,7 @@ from app.schemas.recommendation import (
     SaveRecommendationRequest,
 )
 from app.services.recommendation import PVRecommendationService
+from app.services.shared.utils import has_battery_system, is_on_grid
 from pdf.generator import generate_recommendation_pdf_report
 
 router = APIRouter()
@@ -75,7 +76,15 @@ def parse_first(text, default=0):
 
 
 def normalize_installation_type(value) -> str:
-    return str(value or "").strip().lower().replace("-", "_")
+    return str(value or "").lower().replace("_", "-").strip()
+
+
+def is_on_grid_type(value) -> bool:
+    return is_on_grid(value)
+
+
+def has_battery_system_for_installation(installation_type, battery_capacity_kwh=0) -> bool:
+    return has_battery_system(installation_type, battery_capacity_kwh)
 
 
 def get_default_panel_model() -> str:
@@ -92,13 +101,7 @@ def get_default_inverter_model(installation_type) -> str:
 
 
 def should_suggest_battery(installation_type, autonomy_days) -> bool:
-    normalized = normalize_installation_type(installation_type)
-    return (
-        "hybrid" in normalized
-        or "hybride" in normalized
-        or "off" in normalized
-        or float(autonomy_days or 0) > 0
-    )
+    return has_battery_system_for_installation(installation_type, autonomy_days)
 
 
 def get_default_battery_model(installation_type, autonomy_days) -> str:
@@ -142,6 +145,10 @@ def generate_pv_recommendation_pdf(
         path=str(filepath),
         media_type="application/pdf",
         filename=filename,
+        headers={
+            "X-Report-Pdf-Path": str(filepath),
+            "X-Report-Pdf-Filename": filename,
+        },
     )
 
 
@@ -151,6 +158,15 @@ def save_pv_recommendation(
     db: DBSession,
     token: AuthToken,
 ):
+    
+    pdf_path = request.report_pdf_path or LAST_GENERATED_PDF.get("path")
+    pdf_filename = request.report_pdf_filename or LAST_GENERATED_PDF.get("filename")
+
+    if pdf_path and not pdf_filename:
+        pdf_filename = Path(pdf_path).name
+
+    print("SAVE REPORT PDF PATH =", pdf_path)
+    print("SAVE REPORT PDF FILENAME =", pdf_filename)
     if token is None:
         raise HTTPException(status_code=401, detail="Token requis.")
 
@@ -167,6 +183,9 @@ def save_pv_recommendation(
     )
     installation_type = request.installation_type or input_data.get("installation_type")
     autonomy_days = input_data.get("autonomy_days")
+    if is_on_grid_type(installation_type):
+        autonomy_days = 0
+        input_data = {**input_data, "autonomy_days": 0, "battery_capacity_kwh": 0}
 
     battery_text = formatted.get("battery")
 
@@ -213,6 +232,8 @@ def save_pv_recommendation(
         "ml_recommendation.required_battery_capacity_kwh",
         default=0,
     )
+    if is_on_grid_type(installation_type):
+        battery_capacity_kwh = 0
     inverter_power_kw = get_nested(
         result_data,
         "inverter.recommended_power_kw",
@@ -270,6 +291,17 @@ def save_pv_recommendation(
         "ml_recommendation.battery_model",
         default="",
     ) or get_default_battery_model(installation_type, autonomy_days)
+    if is_on_grid_type(installation_type):
+        battery_model = "Batterie non nécessaire pour ce système on-grid"
+        battery_text = "Aucune batterie nécessaire pour un système connecté au réseau"
+
+    if not request.report_pdf_path:
+        print("WARNING: save called without report_pdf_path")
+
+    pdf_path = request.report_pdf_path
+    pdf_filename = request.report_pdf_filename
+    if pdf_path and not pdf_filename:
+        pdf_filename = Path(pdf_path).name
 
     simulation = SimulationResult(
         user_id=user_id,
@@ -288,6 +320,7 @@ def save_pv_recommendation(
         total_power_kwp=float(total_power_kwp or 0),
         estimated_daily_production_kwh=float(estimated_daily_production_kwh or 0),
         battery_capacity_kwh=float(battery_capacity_kwh or 0),
+        battery_needed="no" if is_on_grid_type(installation_type) else None,
         inverter_power_kw=float(inverter_power_kw or 0),
         total_cost=float(total_cost or 0),
         annual_saving=float(annual_saving or 0),
@@ -303,10 +336,11 @@ def save_pv_recommendation(
             "power_text": formatted.get("power"),
         },
         battery_result={
-            "required_capacity_kwh": float(battery_capacity_kwh or 0),
-            "battery_capacity_kwh": float(battery_capacity_kwh or 0),
+            "required_capacity_kwh": 0 if is_on_grid_type(installation_type) else float(battery_capacity_kwh or 0),
+            "battery_capacity_kwh": 0 if is_on_grid_type(installation_type) else float(battery_capacity_kwh or 0),
             "battery_model": battery_model,
             "display_text": battery_text,
+            "is_required": not is_on_grid_type(installation_type),
         },
         inverter_result={
             "recommended_power_kw": float(inverter_power_kw or 0),
@@ -334,10 +368,12 @@ def save_pv_recommendation(
     )
 
     db.add(simulation)
-    pdf_path = LAST_GENERATED_PDF.get("path")
-    pdf_filename = LAST_GENERATED_PDF.get("filename")
     if pdf_path and pdf_filename:
         simulation.report_pdf_path = pdf_path
+        simulation.report_pdf_filename = pdf_filename
+    elif pdf_path:
+        simulation.report_pdf_path = pdf_path
+    elif pdf_filename:
         simulation.report_pdf_filename = pdf_filename
     db.commit()
     db.refresh(simulation)

@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.shared.utils import is_on_grid, normalize_installation_type
+
 
 class InstallationType(str, Enum):
     ON_GRID = "on_grid"
@@ -45,10 +47,16 @@ class PVRecommendationRequest(BaseModel):
 
         installation_type = values.get("installation_type")
         if isinstance(installation_type, str):
-            normalized = installation_type.strip().lower().replace("-", "_")
-            if normalized == "hybride":
-                normalized = "hybrid"
-            values["installation_type"] = normalized
+            normalized_type = normalize_installation_type(installation_type)
+            if is_on_grid(normalized_type):
+                values["installation_type"] = "on_grid"
+            else:
+                normalized = normalized_type.replace("-", "_")
+                if normalized == "hybride":
+                    normalized = "hybrid"
+                if normalized in {"off-grid", "offgrid"}:
+                    normalized = "off_grid"
+                values["installation_type"] = normalized
 
         orientation = values.get("orientation")
         if isinstance(orientation, str):
@@ -57,11 +65,14 @@ class PVRecommendationRequest(BaseModel):
         phase = values.get("electrical_phase")
         if isinstance(phase, str):
             normalized_phase = phase.strip().lower().replace("-", "_")
-            if normalized_phase in {"mono", "monophase", "monophasé", "monophasee"}:
+            if normalized_phase in {"mono", "monophase", "monophasee"}:
                 normalized_phase = "single_phase"
-            if normalized_phase in {"tri", "triphase", "triphasé", "triphasee"}:
+            if normalized_phase in {"tri", "triphase", "triphasee"}:
                 normalized_phase = "three_phase"
             values["electrical_phase"] = normalized_phase
+
+        if is_on_grid(values.get("installation_type")):
+            values["autonomy_days"] = 0
 
         return values
 
@@ -114,3 +125,5 @@ class SaveRecommendationRequest(BaseModel):
     roi_result: dict[str, Any] | None = None
     recommendations: Any | None = None
     assumptions: dict[str, Any] | None = None
+    report_pdf_path: str | None = None
+    report_pdf_filename: str | None = None

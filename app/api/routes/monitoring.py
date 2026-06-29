@@ -21,6 +21,7 @@ from app.schemas.monitoring import (
 from app.services.monitoring.monitoring_service import MonitoringService
 from app.services.monitoring.user_simulation_service import UserSimulationService
 from app.services.notification_service import send_notification
+from app.services.shared.utils import has_battery_system, is_on_grid
 
 router = APIRouter()
 
@@ -239,13 +240,7 @@ def get_my_simulation(token: AuthToken, db: DBSession):
     if report:
         installation_type = report.installation_type or ""
         battery_capacity = report.battery_capacity_kwh or 0
-        normalized_type = installation_type.lower().replace("_", "-")
-        has_battery = (
-            "hybride" in normalized_type
-            or "hybrid" in normalized_type
-            or "off-grid" in normalized_type
-            or battery_capacity > 0
-        )
+        has_battery = has_battery_system(installation_type, battery_capacity)
 
         report_data = {
             "panels": report.panels_result or {},
@@ -312,7 +307,10 @@ def confirm_monitoring(
 
     battery_result = request.battery_result or {}
     battery_capacity = request.battery_capacity_kwh or 0
-    if battery_capacity > 0:
+    if is_on_grid(request.installation_type):
+        battery_capacity = 0
+        battery_result = {}
+    elif battery_capacity > 0:
         battery_result = {
             **battery_result,
             "required_capacity_kwh": battery_capacity,

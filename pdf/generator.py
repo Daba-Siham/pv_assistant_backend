@@ -21,6 +21,7 @@ from reportlab.lib.pagesizes import A4
 
 from datetime import datetime
 from pathlib import Path
+import unicodedata
 
 from pdf.report_theme import (
     ACCENT_COLOR,
@@ -36,6 +37,26 @@ from pdf.report_theme import (
     TEXT_COLOR,
     WARNING_COLOR,
 )
+
+
+def _normalize_installation_type(value) -> str:
+    normalized = str(value or "").lower().replace("*", "-").replace("_", "-").strip()
+    normalized = unicodedata.normalize("NFKD", normalized)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def is_pure_on_grid(value) -> bool:
+    normalized = _normalize_installation_type(value)
+    return (
+        "on-grid" in normalized
+        or "on grid" in normalized
+        or "ongrid" in normalized
+        or "reseau" in normalized
+        or "connectee au reseau" in normalized
+        or "connecte au reseau" in normalized
+        or "connectee-au-reseau" in normalized
+        or "connecte-au-reseau" in normalized
+    )
 
 
 # ============================================================
@@ -1145,6 +1166,15 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
         value = str(value).strip()
         return value or default
 
+    def is_pure_on_grid(value) -> bool:
+        normalized = str(value or "").lower().replace("_", "-").strip()
+        return (
+            normalized in {"on-grid", "ongrid", "connectee-au-reseau", "connectée-au-réseau"}
+            or "on-grid" in normalized
+            or "reseau" in normalized
+            or "réseau" in normalized
+        )
+
     def add_header(canvas, current_doc):
         canvas.saveState()
         canvas.setFillColor(PRIMARY_COLOR)
@@ -1305,7 +1335,8 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
     panel_brands = brands.get("panels", {})
     battery_brands = brands.get("battery")
     inverter_brands = brands.get(selected_inverter, {})
-    battery_visible = bool(data.get("battery_visible"))
+    battery_visible = bool(data.get("battery_visible")) and not on_grid
+    show_battery_section = battery_visible
     detected_scenarios = scenario_analysis.get("detected_scenarios", [])
 
     surface_remark = (
@@ -1325,9 +1356,9 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
     )
     inverter_function = (
         "gestion panneaux + batterie + reseau"
-        if data.get("installation_type_raw") == "hybrid"
+        if installation_type_key == "hybrid"
         else "fonctionnement hors reseau avec batterie"
-        if data.get("installation_type_raw") == "off_grid"
+        if installation_type_key == "off-grid"
         else "injection/autoconsommation connectee au reseau"
     )
     budget_gap = (
@@ -1378,14 +1409,22 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
             ("Orientation", clean_text(data.get("orientation"))),
             ("Inclinaison", f"{clean_text(data.get('tilt_angle'))} degres"),
             ("Ombrage", clean_text(data.get("shading"))),
-            ("Autonomie batterie", f"{clean_text(data.get('autonomy_days'), '0')} jour(s)"),
+            *(
+                [("Autonomie batterie", f"{clean_text(data.get('autonomy_days'), '0')} jour(s)")]
+                if show_battery_section
+                else []
+            ),
         ]),
         add_section_title("2. Resume intelligent IA"),
         add_paragraph(
             f"Le projet concerne une installation {clean_text(data.get('installation_type_label'))} "
             f"pour une consommation d'environ {clean_text(data.get('daily_consumption_kwh'))} kWh/jour. "
             "La recommandation est construite a partir du modele ML, puis controlee par le backend pour signaler "
-            "les contraintes de surface, de budget, d'orientation, d'ombrage et de batterie."
+            + (
+                "les contraintes de surface, de budget, d'orientation, d'ombrage et de batterie."
+                if show_battery_section
+                else "les contraintes de surface, de budget, d'orientation et d'ombrage."
+            )
         ),
         add_section_title("3. Statut global"),
         add_alert_box(
@@ -1431,7 +1470,7 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
         add_section_title("8. Batterie et autonomie"),
     ])
 
-    if battery_visible:
+    if show_battery_section:
         elements.append(add_table(
             ["Type conseille", "Capacite recommandee", "Role", "Remarque"],
             [[
@@ -1441,12 +1480,6 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
                 battery_note,
             ]],
             [120, 115, 105, 160],
-        ))
-    else:
-        elements.append(add_alert_box(
-            "Aucune batterie n'est necessaire dans cette configuration, car le systeme est connecte au reseau "
-            "et l'autonomie demandee est de 0 jour.",
-            "info",
         ))
 
     elements.extend([
@@ -1835,6 +1868,15 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
         status = (scenario_analysis.get(category) or {}).get("status", "unknown")
         return mapping.get(status, ("À vérifier", "Information à confirmer avec un installateur qualifié."))
 
+    installation_type_value = (
+        data.get("installation_type_raw")
+        or data.get("installation_type")
+        or recommendation_result.get("installation_type")
+        or recommendation_result.get("user_inputs", {}).get("installation_type")
+    )
+    installation_type_key = _normalize_installation_type(installation_type_value)
+    on_grid = is_pure_on_grid(installation_type_value)
+
     def constraints_table_rows():
         surface_state, surface_text = analysis_for("surface", {
             "ok": ("OK", "La surface disponible semble suffisante pour installer la recommandation proposée."),
@@ -1879,21 +1921,26 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
             ["Surface", surface_state, surface_text],
             ["Budget", budget_state, budget_text],
             ["Orientation", orientation_state, orientation_text],
+            ["Onduleur", inverter_state, inverter_text],
+            ["Consommation", consumption_state, consumption_text],
+        ] if on_grid else [
+            ["Surface", surface_state, surface_text],
+            ["Budget", budget_state, budget_text],
+            ["Orientation", orientation_state, orientation_text],
             ["Batterie", battery_state, battery_text],
             ["Onduleur", inverter_state, inverter_text],
             ["Consommation", consumption_state, consumption_text],
         ]
 
     def scenario_rows():
-        installation_type = data.get("installation_type_raw")
         scenarios = data.get("scenarios", {})
-        if installation_type == "on_grid":
+        if installation_type_key == "on-grid":
             return [
                 ["Économique", clean_text(scenarios.get("economic"), "Petite installation sans batterie."), "Coût réduit.", "Couverture énergétique plus limitée."],
                 ["Équilibré", clean_text(scenarios.get("balanced"), "Optimiser surface et puissance."), "Bon compromis surface/budget.", "Dépend de la toiture exploitable."],
                 ["Performance", clean_text(scenarios.get("performance"), "Augmenter surface ou améliorer orientation."), "Meilleure production.", "Investissement plus élevé."],
             ]
-        if installation_type == "off_grid":
+        if installation_type_key == "off-grid":
             return [
                 ["Économique", clean_text(scenarios.get("economic"), "Limiter les usages prioritaires."), "Réduit le coût initial.", "Autonomie plus limitée."],
                 ["Équilibré", clean_text(scenarios.get("balanced"), "Dimensionnement pour besoins essentiels."), "Compromis autonomie/budget.", "Demande une gestion des usages."],
@@ -1960,7 +2007,8 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
     panel_brands = brands.get("panels", {})
     battery_brands = brands.get("battery")
     inverter_brands = brands.get(selected_inverter, {})
-    battery_visible = bool(data.get("battery_visible"))
+    battery_visible = bool(data.get("battery_visible")) and not on_grid
+    show_battery_section = battery_visible
 
     surface_remark = (
         "Surface suffisante pour la recommandation proposée."
@@ -2016,9 +2064,10 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
         ("Puissance PV", clean_text(data.get("pv_power_range")), "accent"),
         ("Budget probable", clean_text(data.get("budget_estimated_range")), "warning" if "J" in detected else "success"),
         ("ROI estimatif", clean_text(data.get("roi_range")), "accent"),
-        ("Batterie", clean_text(data.get("battery_range")), "warning" if battery_visible else "success"),
         ("Surface", f"{clean_text(data.get('available_area_m2'))} m²", "warning" if surface_check.get("status") == "insufficient" else "success"),
     ]
+    if show_battery_section:
+        kpis.insert(4, ("Batterie", clean_text(data.get("battery_range")), "warning"))
 
     elements = [
         Paragraph("Rapport SolarAI — Système photovoltaïque", title_style),
@@ -2040,14 +2089,14 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
             ("Orientation", clean_text(data.get("orientation"))),
             ("Inclinaison", f"{clean_text(data.get('tilt_angle'))} degrés"),
             ("Ombrage", clean_text(data.get("shading"))),
-            ("Autonomie batterie", f"{clean_text(data.get('autonomy_days'), '0')} jour(s)"),
+            *([("Autonomie batterie", f"{clean_text(data.get('autonomy_days'), '0')} jour(s)")] if show_battery_section else []),
         ]),
         add_section_title("2. Résumé intelligent IA"),
         add_paragraph(
             f"Le projet concerne une installation {clean_text(data.get('installation_type_label'))} "
             f"pour une consommation d’environ {clean_text(data.get('daily_consumption_kwh'))} kWh/jour. "
             "La recommandation provient du modèle ML, puis elle est vérifiée par les contrôles backend pour éviter "
-            "les contradictions entre surface, budget, batterie, onduleur et conditions de toiture."
+            + ("les contradictions entre surface, budget, batterie, onduleur et conditions de toiture." if show_battery_section else "les contradictions entre surface, budget, onduleur et conditions de toiture.")
         ),
         add_section_title("3. Cartes KPI"),
         add_kpi_cards(kpis),
@@ -2093,10 +2142,10 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
             ]],
             [82, 78, 82, 78, 74, 106],
         ),
-        add_section_title("9. Batterie et autonomie"),
+        *([add_section_title("9. Batterie et autonomie")] if show_battery_section else []),
     ])
 
-    if battery_visible:
+    if show_battery_section:
         elements.append(add_table(
             ["Type conseillé", "Capacité recommandée", "Rôle", "Remarque"],
             [[
@@ -2106,12 +2155,6 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
                 battery_note,
             ]],
             [120, 115, 105, 160],
-        ))
-    else:
-        elements.append(add_alert_box(
-            "Aucune batterie n’est nécessaire dans cette configuration, car le système est connecté au réseau "
-            "et l’autonomie demandée est de 0 jour.",
-            "info",
         ))
 
     elements.extend([
@@ -2131,7 +2174,7 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
             ["Poste", "Estimation", "Remarque"],
             [
                 ["Panneaux", "inclus dans l’estimation globale", "À confirmer selon marque, puissance et garantie."],
-                ["Batterie", "poste important" if battery_visible else "non nécessaire", "À vérifier seulement si stockage demandé."],
+                *([["Batterie", "poste important", "À vérifier seulement si stockage demandé."]] if show_battery_section else []),
                 ["Onduleur", "inclus dans l’estimation globale", "Prix variable selon type on-grid, hybride ou off-grid."],
                 ["Installation/protections", "à confirmer par devis", "Inclut protections AC/DC, câbles, pose et mise en service."],
                 ["Budget probable total", clean_text(data.get("budget_estimated_range")), "Intervalle issu du modèle et du formatter backend."],

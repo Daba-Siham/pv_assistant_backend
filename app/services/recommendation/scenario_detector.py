@@ -1,5 +1,7 @@
 from typing import Any
 
+from app.services.shared.utils import is_on_grid
+
 
 def _as_float(value: Any) -> float | None:
     if value is None or value == "":
@@ -34,6 +36,8 @@ def _add(target: list[str], item: str) -> None:
 def detect_project_scenarios(user_inputs: dict[str, Any], ml_result: dict[str, Any]) -> dict[str, Any]:
     installation_type = _installation_key(user_inputs.get("installation_type"))
     autonomy_days = _as_float(user_inputs.get("autonomy_days")) or 0
+    if is_on_grid(installation_type):
+        autonomy_days = 0
     daily_consumption = _as_float(user_inputs.get("daily_consumption_kwh_normalized"))
     available_area = _as_float(user_inputs.get("available_area_m2"))
     budget = _as_float(user_inputs.get("budget"))
@@ -51,6 +55,8 @@ def detect_project_scenarios(user_inputs: dict[str, Any], ml_result: dict[str, A
     battery_capacity = _as_float(ml_result.get("battery_capacity_kwh"))
     inverter_kw = _as_float(ml_result.get("inverter_power_kw") or ml_result.get("inverter_rated_power_kw"))
     battery_required = _battery_required(ml_result.get("battery_needed") or ml_result.get("battery_required"))
+    if is_on_grid(installation_type):
+        battery_required = False
 
     detected: list[str] = []
     blocking_issues: list[str] = []
