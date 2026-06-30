@@ -34,6 +34,8 @@ class LLMService:
         current_user = self._get_current_user(token)
         user_id = current_user.id if current_user else request.user_id
         chat_session = self._get_or_create_chat_session(user_id, session_id, message_text)
+        active_recommendation = self._build_active_recommendation_context(request.context or {})
+        suggested_questions = self._extract_suggested_questions(active_recommendation)
 
         try:
             full_chat_history = (
@@ -65,6 +67,8 @@ class LLMService:
                 rag_context=rag_context,
                 calculation_result=None,
                 agent_result=None,
+                active_recommendation=active_recommendation,
+                suggested_questions=suggested_questions,
                 chat_history=chat_history_for_prompt,
                 user_profile=self._build_user_profile(current_user),
             )
@@ -90,6 +94,7 @@ class LLMService:
                 response=response,
                 session_id=session_id,
                 user_id=user_id,
+                suggested_questions=suggested_questions,
             )
 
         except Exception as exc:
@@ -269,6 +274,87 @@ class LLMService:
             "email": user.email,
             "knowledge_level": user.knowledge_level,
         }
+
+    @staticmethod
+    def _build_active_recommendation_context(context: dict | None) -> dict | None:
+        if not isinstance(context, dict):
+            return None
+
+        active = context.get("active_recommendation")
+        if not isinstance(active, dict):
+            return None
+
+        result = active.get("result") or {}
+        input_data = active.get("input") or {}
+        formatted = (
+            result.get("formatted_recommendation", {}) if isinstance(result, dict) else {}
+        )
+        recommendation_data = formatted.get("recommendation_data", {}) if isinstance(formatted, dict) else {}
+        user_friendly = (
+            formatted.get("user_friendly_recommendation", {}) if isinstance(formatted, dict) else {}
+        )
+        scenario_analysis = recommendation_data.get("scenario_analysis", {}) if isinstance(recommendation_data, dict) else {}
+
+        summary = {
+            "timestamp": active.get("timestamp"),
+            "input": {
+                "city": input_data.get("city"),
+                "installation_type": input_data.get("installation_type"),
+                "daily_consumption_kwh": input_data.get("daily_consumption_kwh"),
+                "available_area_m2": input_data.get("available_area_m2"),
+                "budget": input_data.get("budget"),
+                "orientation": input_data.get("orientation"),
+                "autonomy_days": input_data.get("autonomy_days"),
+                "roof_type": input_data.get("roof_type"),
+                "tilt_angle": input_data.get("tilt_angle"),
+                "shading": input_data.get("shading"),
+            },
+            "recommendation": {
+                "global_status": recommendation_data.get("global_status"),
+                "detected_scenarios": recommendation_data.get("detected_scenarios", []),
+                "panels_range": recommendation_data.get("panels_range"),
+                "panel_power_range": recommendation_data.get("panel_power_range"),
+                "pv_power_range": recommendation_data.get("pv_power_range"),
+                "battery_range": recommendation_data.get("battery_range"),
+                "battery_visible": recommendation_data.get("battery_visible"),
+                "inverter_type": recommendation_data.get("inverter_type"),
+                "inverter_range": recommendation_data.get("inverter_range"),
+                "budget_estimated_range": recommendation_data.get("budget_estimated_range"),
+                "roi_range": recommendation_data.get("roi_range"),
+                "roi_category": recommendation_data.get("roi_category"),
+                "scenario_analysis": scenario_analysis,
+                "points_to_check": recommendation_data.get("points_to_check", []),
+                "questions_to_ask": recommendation_data.get("questions_to_ask", []),
+                "scenarios": recommendation_data.get("scenarios", {}),
+                "conclusion": recommendation_data.get("conclusion"),
+            },
+            "formatted_summary": user_friendly,
+        }
+
+        return summary
+
+    @staticmethod
+    def _extract_suggested_questions(active_recommendation: dict | None) -> list[str]:
+        if not isinstance(active_recommendation, dict):
+            return []
+
+        recommendation = active_recommendation.get("recommendation") or {}
+        questions = recommendation.get("questions_to_ask") or []
+        if not isinstance(questions, list):
+            return []
+
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in questions:
+            question = str(item or "").strip()
+            if not question:
+                continue
+            key = question.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(question)
+        return result[:6]
 
     def _get_or_create_chat_session(
         self,

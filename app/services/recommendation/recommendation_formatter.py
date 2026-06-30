@@ -542,6 +542,11 @@ def build_user_recommendation_data(
         scenario_analysis=scenario_analysis,
         surface_check=surface_check,
     )
+    recommendation_data["questions_to_ask"] = scenario_analysis.get("questions_to_ask", [])
+    scenarios = recommendation_data.get("scenarios", {})
+    recommendation_data["economic_scenario"] = scenario_analysis.get("economic_scenario") or scenarios.get("economic")
+    recommendation_data["balanced_scenario"] = scenario_analysis.get("balanced_scenario") or scenarios.get("balanced")
+    recommendation_data["performance_scenario"] = scenario_analysis.get("performance_scenario") or scenarios.get("performance")
     recommendation_data["brands"] = brand_recommendations(
         installation_type=installation_type,
         battery_visible=battery_visible,
@@ -589,6 +594,7 @@ def format_ml_recommendation(
             "roi_category": recommendation_data["roi_category"],
             "orientation": user_inputs.get("orientation") or "à vérifier",
             "tilt": f"environ {recommendation_data['tilt_angle']}°",
+            "questions_to_ask": recommendation_data["questions_to_ask"],
         },
         "recommendation_data": recommendation_data,
         "checks": checks,

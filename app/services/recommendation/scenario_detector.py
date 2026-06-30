@@ -33,6 +33,77 @@ def _add(target: list[str], item: str) -> None:
         target.append(item)
 
 
+def _questions_for_scenarios(
+    installation_type: str,
+    autonomy_days: float,
+    surface_status: str,
+    budget_status: str,
+    orientation_status: str,
+    shading_status: str,
+    battery_status: str,
+) -> list[str]:
+    questions = [
+        "Why this number of panels?",
+        "Why this panel power?",
+        "Is my roof surface sufficient?",
+        "What should I verify before installation?",
+    ]
+
+    if installation_type == "on_grid":
+        questions.append("Why no battery for on-grid?")
+        if autonomy_days > 0:
+            questions.append("Should I switch to hybrid if I want autonomy?")
+    elif installation_type in {"hybrid", "hybride"}:
+        questions.append("Why is a battery recommended?")
+    elif installation_type == "off_grid":
+        questions.append("Why is the battery mandatory off-grid?")
+
+    if surface_status in {"insufficient", "very_insufficient"}:
+        questions.append("How can I reduce the system size for my roof?")
+    if budget_status in {"near", "insufficient"}:
+        questions.append("How can I reduce the budget?")
+    if orientation_status in {"acceptable", "bad"} or shading_status in {"medium", "high"}:
+        questions.append("What warnings should I consider about orientation or shading?")
+    if battery_status == "hybrid_recommended":
+        questions.append("What is the difference between on-grid and hybrid?")
+    if battery_status in {"needed", "insufficient", "oversized"}:
+        questions.append("How should I size the battery?")
+
+    return questions
+
+
+def _scenario_texts(installation_type: str, surface_status: str, budget_status: str, battery_status: str) -> tuple[str, str, str]:
+    if installation_type == "on_grid":
+        economic = "Rester en on-grid sans batterie pour limiter le coût."
+        balanced = "Conserver une configuration on-grid équilibrée avec des panneaux adaptés au toit disponible."
+        performance = "Prévoir plus de surface ou des panneaux plus puissants pour augmenter la couverture."
+        if surface_status in {"insufficient", "very_insufficient"}:
+            economic = "Réduire le nombre de panneaux pour respecter la surface disponible et le budget."
+            balanced = "Adapter la puissance aux mètres carrés réellement exploitables."
+            performance = "Chercher une surface supplémentaire pour améliorer la couverture."
+        if budget_status in {"near", "insufficient"}:
+            economic = "Rester en on-grid sans batterie pour limiter le coût."
+            balanced = "Choisir des panneaux plus puissants ou moins nombreux pour respecter le budget."
+            performance = "Prévoir une surface plus grande pour viser une meilleure production."
+        if battery_status == "hybrid_recommended":
+            balanced = "Passer en hybride seulement si l'autonomie est réellement nécessaire."
+            performance = "Prévoir une architecture hybride avec batterie compatible."
+        return economic, balanced, performance
+
+    if installation_type in {"hybrid", "hybride"}:
+        return (
+            "Réduire ou reporter une partie de la batterie si le budget est prioritaire.",
+            "Conserver une bonne puissance solaire et ajuster la capacité batterie selon le budget réel.",
+            "Renforcer la batterie et garder une marge sur l'onduleur pour améliorer l'autonomie.",
+        )
+
+    return (
+        "Limiter les usages prioritaires et réduire la puissance installée si le budget est contraint.",
+        "Dimensionner panneaux et batteries pour couvrir les besoins essentiels avec une marge raisonnable.",
+        "Augmenter la batterie et la surface solaire pour sécuriser l'autonomie hors réseau.",
+    )
+
+
 def detect_project_scenarios(user_inputs: dict[str, Any], ml_result: dict[str, Any]) -> dict[str, Any]:
     installation_type = _installation_key(user_inputs.get("installation_type"))
     autonomy_days = _as_float(user_inputs.get("autonomy_days")) or 0
@@ -243,6 +314,23 @@ def detect_project_scenarios(user_inputs: dict[str, Any], ml_result: dict[str, A
         global_status = "faisable"
         _add(detected, "AF")
 
+    questions_to_ask = _questions_for_scenarios(
+        installation_type=installation_type,
+        autonomy_days=autonomy_days,
+        surface_status=surface_status,
+        budget_status=budget_status,
+        orientation_status=orientation_status,
+        shading_status=shading_status,
+        battery_status=battery_status,
+    )
+
+    economic_scenario, balanced_scenario, performance_scenario = _scenario_texts(
+        installation_type=installation_type,
+        surface_status=surface_status,
+        budget_status=budget_status,
+        battery_status=battery_status,
+    )
+
     return {
         "global_status": global_status,
         "detected_scenarios": detected,
@@ -250,6 +338,11 @@ def detect_project_scenarios(user_inputs: dict[str, Any], ml_result: dict[str, A
         "warnings": warnings,
         "info_messages": info_messages,
         "recommendations": recommendations,
+        "economic_scenario": economic_scenario,
+        "balanced_scenario": balanced_scenario,
+        "performance_scenario": performance_scenario,
+        "points_to_verify": warnings + blocking_issues,
+        "questions_to_ask": questions_to_ask,
         "surface": {
             "status": surface_status,
             "required_area_m2": round(required_area, 1) if required_area is not None else None,
