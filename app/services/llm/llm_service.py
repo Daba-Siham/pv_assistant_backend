@@ -222,6 +222,54 @@ class LLMService:
             .all()
         )
 
+    def save_chat_message(
+        self,
+        token: str | None,
+        session_id: str,
+        role: str,
+        content: str,
+        context: dict | None = None,
+    ) -> dict:
+        if self.db is None:
+            return {"success": False, "session_id": session_id, "message": "Base de donnees non disponible"}
+
+        user = self._get_current_user(token)
+        if not user:
+            return {"success": False, "session_id": session_id, "message": "Utilisateur non authentifie"}
+
+        message_text = (content or "").strip()
+        if not message_text:
+            return {"success": True, "session_id": session_id, "message": "Message vide ignore"}
+
+        chat_session = self._get_or_create_chat_session(user.id, session_id, message_text)
+        if chat_session is None:
+            return {"success": False, "session_id": session_id, "message": "Session de chat introuvable"}
+
+        message = ChatMessage(
+            session_id=chat_session.id,
+            role=role,
+            content=message_text,
+            metadata_=context if isinstance(context, dict) else None,
+        )
+
+        try:
+            self.db.add(message)
+
+            if not chat_session.title:
+                chat_session.title = self._make_session_title(message_text)
+
+            chat_session.updated_at = datetime.utcnow()
+            self.db.commit()
+            return {"success": True, "session_id": session_id}
+        except Exception as exc:
+            logger.exception("Failed to save chat message: %s", exc)
+            self.db.rollback()
+            return {
+                "success": False,
+                "session_id": session_id,
+                "message": "Impossible de sauvegarder le message",
+            }
+
     def delete_chat_session(self, token: str | None, session_id: str) -> dict:
         if self.db is None:
             return {"success": False, "message": "Base de donnees non disponible"}

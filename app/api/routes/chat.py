@@ -7,6 +7,7 @@ from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
     ChatSessionResponse,
+    SaveChatMessageInput,
 )
 from app.services.llm.llm_service import LLMService
 
@@ -29,6 +30,18 @@ def get_chat_history(
 ):
     llm_service = LLMService(db=db)
     return llm_service.get_chat_history(token=token, session_id=session_id, limit=limit)
+
+
+@router.post("/messages", status_code=status.HTTP_200_OK)
+def save_chat_message(data: SaveChatMessageInput, db: DBSession, token: AuthToken):
+    llm_service = LLMService(db=db)
+    return llm_service.save_chat_message(
+        token=token,
+        session_id=data.session_id,
+        role=data.role,
+        content=data.content,
+        context=data.context,
+    )
 
 
 @router.delete("/history", status_code=status.HTTP_200_OK)

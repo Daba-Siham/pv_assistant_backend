@@ -15,7 +15,7 @@ import app.models  # noqa: F401 - ensure SQLAlchemy models are registered
 from app.services.calculation.calculation_service import calculate_system
 from app.services.agent.agent_engine import process_chat
 from app.services.llm.llm_service import LLMService
-from app.schemas.chat import ChatRequest
+from app.schemas.chat import ChatRequest, SaveChatMessageInput
 from app.schemas.monitoring import MonitoringSimulationRequest
 from app.services.monitoring.simulation_service import SimulationService
 from pdf.generator import generate_pdf_report
@@ -161,6 +161,16 @@ def create_application() -> FastAPI:
         limit: int = 50,
     ):
         return LLMService(db=db).get_chat_history(token=token, session_id=session_id, limit=limit)
+
+    @app.post("/chat/messages")
+    def save_chat_message(data: SaveChatMessageInput, token: AuthToken, db: Session = Depends(get_db)):
+        return LLMService(db=db).save_chat_message(
+            token=token,
+            session_id=data.session_id,
+            role=data.role,
+            content=data.content,
+            context=data.context,
+        )
 
     @app.delete("/chat/history")
     def clear_chat_history(token: AuthToken, db: Session = Depends(get_db), session_id: str | None = None):

@@ -55,3 +55,10 @@ class ChatMessageResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SaveChatMessageInput(BaseModel):
+    session_id: str
+    role: str
+    content: str
+    context: dict | None = None
