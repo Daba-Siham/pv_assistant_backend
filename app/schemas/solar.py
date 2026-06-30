@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -25,3 +27,21 @@ class SolarCityResponse(BaseModel):
     ghi: float
     temperature_avg: float
     peak_sun_hours: float
+
+
+class SolarMapDataResponse(BaseModel):
+    success: bool = True
+    provider: Literal["pvgis"] = "pvgis"
+    latitude: float
+    longitude: float
+    annual_pv_yield: float
+    annual_ghi: float | None = None
+    annual_dni: float | None = None
+    annual_dhi: float | None = None
+    average_temperature: float | None = None
+    potential_level: Literal["excellent", "very_good", "good", "medium", "low"]
+    potential_label: str
+    color: str
+    recommendation: str
+    year: int | None = None
+    source: str = "pvgis"

@@ -54,6 +54,12 @@ class Settings(BaseSettings):
 
     NSRDB_API_KEY: str | None = Field(default=None)
     NSRDB_BASE_URL: str = Field(default="https://developer.nrel.gov/api/nsrdb/v2/solar/psm3-download.csv")
+    DEFAULT_NSRDB_YEAR: int = Field(default=2023)
+    NSRDB_TIMEOUT_SECONDS: int = Field(default=30)
+    NSRDB_INTERVAL_MINUTES: int = Field(default=60)
+
+    PVGIS_BASE_URL: str = Field(default="https://re.jrc.ec.europa.eu/api/PVcalc")
+    PVGIS_TIMEOUT_SECONDS: int = Field(default=30)
 
     PANELS_DATA_PATH: Path = Field(default=DATA_DIR / "materials" / "panels.csv")
     BATTERIES_DATA_PATH: Path = Field(default=DATA_DIR / "materials" / "batteries.csv")

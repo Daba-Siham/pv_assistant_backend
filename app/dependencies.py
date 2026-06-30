@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.session import SessionLocal
+from app.core.security import get_user_id_from_token
+from app.models.user import User
 
 
 def get_db():
@@ -60,6 +62,45 @@ def require_auth_token(token: AuthToken) -> str:
 
 
 RequiredAuthToken = Annotated[str, Depends(require_auth_token)]
+
+
+def require_admin_user(token: AuthToken, db: Session = Depends(get_db)) -> User:
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentification requise"
+        )
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalide ou expiré"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Utilisateur introuvable"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ce compte est désactivé"
+        )
+
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès administrateur requis"
+        )
+
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin_user)]
 
 
 def get_app_settings():
