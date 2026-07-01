@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from app.core.security import get_user_id_from_token
 from app.dependencies import AuthToken, DBSession
 from app.models.simulation_result import SimulationResult
+from app.models.user import User
 from app.schemas.recommendation import (
     PVRecommendationRequest,
     PVRecommendationResponse,
@@ -20,6 +21,59 @@ from pdf.generator import generate_recommendation_pdf_report
 router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parents[3]
 LAST_GENERATED_PDF = {"path": None, "filename": None}
+CLIENT_NAME_FALLBACK = "Client non renseigné"
+
+
+def _resolve_request_client_name(db, token: AuthToken, request_client_name: str | None) -> str:
+    token_client_name = _resolve_client_name(db, token)
+    if token_client_name and token_client_name != "Client non renseignÃ©":
+        return token_client_name
+
+    request_name = str(request_client_name or "").strip()
+    if request_name:
+        return request_name
+
+    return CLIENT_NAME_FALLBACK
+
+
+def _resolve_client_name(db, token: AuthToken) -> str:
+    fallback = "Client non renseigné"
+    if token is None:
+        return fallback
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        return fallback
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        return fallback
+
+    full_name = str(user.full_name or "").strip()
+    if full_name:
+        return full_name
+
+    name = str(getattr(user, "name", "") or "").strip()
+    if name:
+        return name
+
+    email = str(user.email or "").strip()
+    if email:
+        return email
+
+    return fallback
+
+
+def _resolve_effective_client_name(db, token: AuthToken, request_client_name: str | None) -> str:
+    token_client_name = _resolve_client_name(db, token)
+    if token_client_name and not str(token_client_name).startswith("Client non renseign"):
+        return token_client_name
+
+    request_name = str(request_client_name or "").strip()
+    if request_name:
+        return request_name
+
+    return CLIENT_NAME_FALLBACK
 
 
 def get_nested(data: dict, *paths: str, default=None):
@@ -123,9 +177,15 @@ def generate_pv_recommendation(
 def generate_pv_recommendation_pdf(
     request: PVRecommendationRequest,
     db: DBSession,
+    token: AuthToken,
 ):
+    print("ACTIVE NEW PDF ROUTE = /recommendation/pdf")
+    print("PDF TOKEN PRESENT =", token is not None)
     service = PVRecommendationService(db=db)
     result = service.generate(request).model_dump(mode="json")
+    client_name = _resolve_effective_client_name(db, token, request.client_name)
+    print("PDF CLIENT NAME =", client_name)
+    result["client_name"] = client_name
 
     reports_dir = BASE_DIR / "generated_reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -136,6 +196,7 @@ def generate_pv_recommendation_pdf(
     generate_recommendation_pdf_report(
         filename=str(filepath),
         recommendation_result=result,
+        client_name=client_name,
     )
 
     LAST_GENERATED_PDF["path"] = str(filepath)

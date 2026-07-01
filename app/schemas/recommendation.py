@@ -19,6 +19,7 @@ class ElectricalPhase(str, Enum):
 
 class PVRecommendationRequest(BaseModel):
     city: str = Field(default="non fournie")
+    client_name: str | None = None
     monthly_consumption_kwh: float | None = Field(default=None, gt=0)
     daily_consumption_kwh: float | None = Field(default=None, gt=0)
     installation_type: InstallationType

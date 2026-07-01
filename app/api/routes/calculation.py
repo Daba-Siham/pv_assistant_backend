@@ -4,6 +4,8 @@ from pathlib import Path
 from datetime import datetime
 
 from app.dependencies import DBSession, AuthToken
+from app.core.security import get_user_id_from_token
+from app.models.user import User
 from app.schemas.calculation import (
     CalculationRequest,
     CalculationResponse,
@@ -26,6 +28,34 @@ router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parents[3]
 
 
+def _resolve_client_name(db, token: AuthToken) -> str:
+    fallback = "Client non renseigné"
+    if token is None:
+        return fallback
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        return fallback
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        return fallback
+
+    full_name = str(getattr(user, "full_name", "") or "").strip()
+    if full_name:
+        return full_name
+
+    name = str(getattr(user, "name", "") or "").strip()
+    if name:
+        return name
+
+    email = str(getattr(user, "email", "") or "").strip()
+    if email:
+        return email
+
+    return fallback
+
+
 @router.post("/", status_code=status.HTTP_200_OK)
 def calculate_pv_system(request: CalculationRequest, db: DBSession, token: AuthToken):
     calculation_service = CalculationService(db=db)
@@ -33,11 +63,12 @@ def calculate_pv_system(request: CalculationRequest, db: DBSession, token: AuthT
 
 
 @router.post("/pdf")
-def generate_pdf(request: CalculationRequest):
+def generate_pdf(request: CalculationRequest, db: DBSession, token: AuthToken):
     data = calculate_system(request)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"rapport_solaire_{timestamp}.pdf"
     filepath = BASE_DIR / "generated_reports" / filename
+    client_name = _resolve_client_name(db, token)
     generate_pdf_report(
         filename=str(filepath),
         user_data={
@@ -45,9 +76,10 @@ def generate_pdf(request: CalculationRequest):
             "installation_type": request.installation_type,
             "daily_consumption_kwh": request.daily_consumption_kwh,
             "orientation": request.orientation,
-            "client_name": "Client Solar AI"
+            "client_name": client_name,
         },
-        results=data
+        results=data,
+        client_name=client_name,
     )
     return FileResponse(
         path=str(filepath),

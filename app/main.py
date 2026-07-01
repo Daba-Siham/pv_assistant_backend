@@ -20,6 +20,8 @@ from app.schemas.monitoring import MonitoringSimulationRequest
 from app.services.monitoring.simulation_service import SimulationService
 from pdf.generator import generate_pdf_report
 from app.dependencies import AuthToken, get_db
+from app.core.security import get_user_id_from_token
+from app.models.user import User
 from sqlalchemy.orm import Session
 
 
@@ -44,6 +46,34 @@ class ChatInput(BaseModel):
     session_id: str | None = None
     user_id: int | None = None
     context: dict | None = None
+
+
+def _resolve_client_name(db: Session, token: str | None) -> str:
+    fallback = "Client non renseigné"
+    if token is None:
+        return fallback
+
+    user_id = get_user_id_from_token(token)
+    if user_id is None:
+        return fallback
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        return fallback
+
+    full_name = str(getattr(user, "full_name", "") or "").strip()
+    if full_name:
+        return full_name
+
+    name = str(getattr(user, "name", "") or "").strip()
+    if name:
+        return name
+
+    email = str(getattr(user, "email", "") or "").strip()
+    if email:
+        return email
+
+    return fallback
 
 
 # =========================================
@@ -181,17 +211,19 @@ def create_application() -> FastAPI:
     # =========================================
 
     @app.post("/generate-pdf")
-    def generate_pdf(data: SolarInput):
+    def generate_pdf(data: SolarInput, token: AuthToken, db: Session = Depends(get_db)):
         try:
             result = calculate_system(data)
             os.makedirs("generated_reports", exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             pdf_filename = f"rapport_solaire_{timestamp}.pdf"
             pdf_path = os.path.join("generated_reports", pdf_filename)
+            client_name = _resolve_client_name(db, token)
             generate_pdf_report(
                 filename=pdf_path,
                 user_data=data.model_dump(),
-                results=result
+                results=result,
+                client_name=client_name,
             )
             return {
                 "message": "PDF generated successfully",

@@ -39,6 +39,19 @@ from pdf.report_theme import (
 )
 
 
+def _resolve_client_display_name(value) -> str:
+    fallback = "Client non renseigné"
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+
+    normalized = " ".join(text.split()).strip().lower()
+    if normalized in {"client", "client client", "unknown", "n/a", "na", "none", "null"}:
+        return fallback
+
+    return text
+
+
 def _normalize_installation_type(value) -> str:
     normalized = str(value or "").lower().replace("*", "-").replace("_", "-").strip()
     normalized = unicodedata.normalize("NFKD", normalized)
@@ -67,7 +80,8 @@ def is_pure_on_grid(value) -> bool:
 def generate_pdf_report(
     filename,
     user_data,
-    results
+    results,
+    client_name=None
 ):
 
     # ========================================================
@@ -91,10 +105,7 @@ def generate_pdf_report(
         "-"
     )
 
-    client_name = user_data.get(
-    "client_name",
-    "Client"
-)
+    client_name = _resolve_client_display_name(client_name or user_data.get("client_name"))
 
     panels = results.get("panels", {})
     battery = results.get("battery", {})
@@ -1399,7 +1410,7 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
         Spacer(1, 12),
         add_section_title("1. Informations du projet"),
         add_key_value_table([
-            ("Client", clean_text(data.get("client_name"), "Client")),
+            ("Client", _resolve_client_display_name(data.get("client_name"))),
             ("Ville", clean_text(data.get("city"))),
             ("Date", report_date),
             ("Type de systeme", clean_text(data.get("installation_type_label"))),
@@ -1571,13 +1582,20 @@ def _generate_recommendation_pdf_report_v2(filename: str, recommendation_result:
     return filename
 
 
-def generate_recommendation_pdf_report(filename: str, recommendation_result: dict) -> str:
+def generate_recommendation_pdf_report(
+    filename: str,
+    recommendation_result: dict,
+    client_name: str | None = None,
+) -> str:
     """Generate a themed SolarAI PDF using only recommendation_data."""
 
     formatted = recommendation_result["formatted_recommendation"]
     data = formatted["recommendation_data"]
     scenario_analysis = data.get("scenario_analysis", {})
     detected = set(scenario_analysis.get("detected_scenarios", []))
+    resolved_client_name = _resolve_client_display_name(
+        client_name or recommendation_result.get("client_name") or data.get("client_name")
+    )
 
     doc = SimpleDocTemplate(
         filename,
@@ -2079,7 +2097,7 @@ def generate_recommendation_pdf_report(filename: str, recommendation_result: dic
         Spacer(1, 10),
         add_section_title("1. Informations du projet"),
         add_key_value_table([
-            ("Client", clean_text(data.get("client_name"), "Client")),
+            ("Client", resolved_client_name),
             ("Ville", clean_text(data.get("city"))),
             ("Date", report_date),
             ("Type de système", clean_text(data.get("installation_type_label"))),

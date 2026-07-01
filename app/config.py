@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     WEB_PUSH_VAPID_PUBLIC_KEY: str | None = Field(default=None)
     WEB_PUSH_VAPID_EMAIL: str = Field(default="admin@solarai.local")
 
+    SMTP_HOST: str | None = Field(default=None)
+    SMTP_PORT: int | None = Field(default=None, ge=1, le=65535)
+    SMTP_USER: str | None = Field(default=None)
+    SMTP_PASSWORD: str | None = Field(default=None)
+    SMTP_FROM_EMAIL: str | None = Field(default=None)
+    CONTACT_RECEIVER_EMAIL: str = Field(default="team.solaiai26@gmail.com")
+
     LOG_LEVEL: str = Field(default="INFO")
 
 
