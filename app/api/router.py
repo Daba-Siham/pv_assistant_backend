@@ -11,7 +11,6 @@ from app.api.routes import (
     recommendation,
     reports,
     solar_data,
-    solar_stores,
 )
 
 api_router = APIRouter()
@@ -27,6 +26,5 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 api_router.include_router(recommendation.router, prefix="/recommendation", tags=["PV Recommendation"])
 api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
 api_router.include_router(solar_data.router, prefix="/solar-data", tags=["Solar Data"])
-api_router.include_router(solar_stores.router, prefix="/solar-stores", tags=["Solar Stores"])
 # api_router.include_router(solar.router, prefix="/solar", tags=["Solar Data"])
 # api_router.include_router(stores.router, prefix="/stores", tags=["Stores"])
