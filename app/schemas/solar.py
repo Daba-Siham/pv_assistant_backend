@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -45,3 +45,29 @@ class SolarMapDataResponse(BaseModel):
     recommendation: str
     year: int | None = None
     source: str = "pvgis"
+
+
+class SolarStoreResponse(BaseModel):
+    id: str
+    osm_type: Literal["node", "way", "relation"]
+    name: str
+    latitude: float
+    longitude: float
+    address: str | None = None
+    city: str | None = None
+    phone: str | None = None
+    website: str | None = None
+    tags: dict[str, Any] = Field(default_factory=dict)
+    products: list[str] = Field(default_factory=list)
+    distance_km: float
+
+
+class SolarStoresResponse(BaseModel):
+    success: bool = True
+    provider: Literal["geoapify"] = "geoapify"
+    latitude: float
+    longitude: float
+    radius_km: float
+    stores: list[SolarStoreResponse] = Field(default_factory=list)
+    warning: str | None = None
+    message: str | None = None

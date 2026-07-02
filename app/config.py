@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     NSRDB_TIMEOUT_SECONDS: int = Field(default=30)
     NSRDB_INTERVAL_MINUTES: int = Field(default=60)
 
+    GEOAPIFY_API_KEY: str | None = Field(default=None)
+
     PVGIS_BASE_URL: str = Field(default="https://re.jrc.ec.europa.eu/api/PVcalc")
     PVGIS_TIMEOUT_SECONDS: int = Field(default=30)
 
