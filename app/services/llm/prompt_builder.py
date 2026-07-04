@@ -107,6 +107,13 @@ For general questions about photovoltaic panels, provide detailed explanations w
         if request.context:
             parts.append("\nFrontend context:")
             parts.append(str(request.context))
+            if request.context.get("context_type") == "monitoring":
+                parts.append(
+                    "Monitoring page context: the user is asking from the Monitoring page. "
+                    "Use the monitoring data provided above to explain alerts, production, "
+                    "consumption, battery state, system status, and practical actions. "
+                    "Do not invent missing values."
+                )
 
         parts.append("\nUser's last message:")
         parts.append(request.text)

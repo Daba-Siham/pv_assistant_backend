@@ -7,6 +7,14 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.notification import Notification, NotificationPreference, PushSubscription
 
+NOTIFICATION_ICON_PATH = "/images/solarai-icon.svg"
+
+
+def _normalize_notification_title(title: str) -> str:
+    if "solarai" in title.lower():
+        return title
+    return f"SolarAI - {title}"
+
 
 def get_or_create_preferences(db: Session, user_id: int) -> NotificationPreference:
     preference = (
@@ -89,10 +97,13 @@ def send_web_push_to_user(
         return False
 
     sent = False
+    notification_title = _normalize_notification_title(title)
     data = json.dumps({
-        "title": title,
+        "title": notification_title,
         "message": message,
         "payload": payload or {},
+        "icon": NOTIFICATION_ICON_PATH,
+        "badge": NOTIFICATION_ICON_PATH,
     })
 
     for subscription in subscriptions:
@@ -137,10 +148,11 @@ def send_notification(
     severity: str | None = None,
     payload: dict[str, Any] | None = None,
 ) -> Notification:
+    normalized_title = _normalize_notification_title(title)
     notification = create_notification(
         db=db,
         user_id=user_id,
-        title=title,
+        title=normalized_title,
         message=message,
         notification_type=notification_type,
         severity=severity,
@@ -155,7 +167,7 @@ def send_notification(
         should_send = should_send and preference.maintenance_alerts_enabled
     elif notification_type == "simulation_confirmed":
         should_send = should_send and preference.simulation_alerts_enabled
-    if should_send and send_web_push_to_user(db, user_id, title, message, payload):
+    if should_send and send_web_push_to_user(db, user_id, normalized_title, message, payload):
         notification.sent_at = datetime.utcnow()
         db.add(notification)
         db.commit()
